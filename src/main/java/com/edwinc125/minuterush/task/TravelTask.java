@@ -8,15 +8,26 @@ import net.minecraft.server.level.ServerPlayer;
 
 public final class TravelTask implements MinuteRushTask {
 	private final double distance;
+	private final String direction;
+	private final double directionX;
+	private final double directionZ;
 	private final Map<UUID, double[]> starts = new HashMap<>();
 
 	public TravelTask(double distance) {
+		this("any direction", 0.0, 0.0, distance);
+	}
+
+	public TravelTask(String direction, double directionX, double directionZ, double distance) {
+		this.direction = direction;
+		this.directionX = directionX;
+		this.directionZ = directionZ;
 		this.distance = distance;
 	}
 
 	@Override
 	public String description() {
-		return "Travel " + (int) distance + " blocks";
+		return "Travel " + ("any direction".equals(direction) ? "" : direction + " ")
+			+ (int) distance + " blocks";
 	}
 
 	@Override
@@ -32,6 +43,11 @@ public final class TravelTask implements MinuteRushTask {
 			begin(player);
 			start = starts.get(player.getUUID());
 		}
-		return Math.hypot(player.getX() - start[0], player.getZ() - start[1]) >= distance;
+		double deltaX = player.getX() - start[0];
+		double deltaZ = player.getZ() - start[1];
+		if ("any direction".equals(direction)) {
+			return Math.hypot(deltaX, deltaZ) >= distance;
+		}
+		return deltaX * directionX + deltaZ * directionZ >= distance;
 	}
 }

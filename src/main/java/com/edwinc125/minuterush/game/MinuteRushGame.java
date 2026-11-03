@@ -5,6 +5,7 @@ import com.edwinc125.minuterush.task.MinuteRushTask;
 import com.edwinc125.minuterush.task.TaskFactory;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.List;
 import java.util.Random;
 import java.util.UUID;
 import java.util.ArrayDeque;
@@ -24,6 +25,8 @@ import net.minecraft.network.protocol.game.ClientboundSetSubtitleTextPacket;
 import net.minecraft.network.protocol.game.ClientboundSetTitleTextPacket;
 import net.minecraft.network.protocol.game.ClientboundSetTitlesAnimationPacket;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
 
 public final class MinuteRushGame {
 	private static final Set<String> INTERACTABLE_BLOCKS = Set.of(
@@ -38,10 +41,21 @@ public final class MinuteRushGame {
 	private final Deque<String> recentTaskIds = new ArrayDeque<>();
 	private final Map<UUID, String> previousStandingBlocks = new HashMap<>();
 	private final Random random = new Random();
+	private final ArenaManager arena;
 	private MatchState state = MatchState.IDLE;
 	private MinuteRushTask task;
+	private ServerPlayer testPlayer;
+	private String testCategory;
+	private List<TaskFactory.Selection> testSelections = List.of();
+	private int testIndex;
+	private MinuteRushTask testTask;
 	private int ticksRemaining;
 	private int countdownTicks;
+	private int intermissionTicks;
+	private int lastIntermissionSecond = -1;
+	private String currentTaskId;
+	private String intermissionMessage;
+	private boolean cleanupPending;
 	private final ServerBossEvent bossbar = new ServerBossEvent(
 		UUID.fromString("a0e1e2d3-c4b5-4678-9012-3456789abcde"),
 		Component.literal("Minute Rush").withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD),
@@ -54,6 +68,7 @@ public final class MinuteRushGame {
 	public MinuteRushGame(MinecraftServer server, MinuteRushConfig config) {
 		this.server = server;
 		this.config = config;
+		this.arena = new ArenaManager(server);
 	}
 
 	public MinecraftServer server() {
@@ -90,23 +105,69 @@ public final class MinuteRushGame {
 
 	public void playerJoined(ServerPlayer player) {
 		scores.putIfAbsent(player.getUUID(), 0);
+		if (state != MatchState.IDLE && state != MatchState.MATCH_OVER) {
+			arena.addSpectator(player);
+			player.sendSystemMessage(Component.literal("A match is in progress; you are now a spectator."));
+			return;
+		}
 		player.sendSystemMessage(Component.literal("Minute Rush: use /minute-rush start when everyone is ready."));
 	}
 
 	public void playerLeft(ServerPlayer player) {
-		if ((state == MatchState.ROUND_ACTIVE || state == MatchState.COUNTDOWN)
+		if (isCategoryTest(player)) {
+			clearCategoryTest();
+		}
+		if ((state == MatchState.ROUND_ACTIVE || state == MatchState.COUNTDOWN
+				|| state == MatchState.PREPARING_ARENA || state == MatchState.PRE_GAME_COUNTDOWN
+				|| state == MatchState.INTERMISSION)
 				&& participants.remove(player.getUUID()) && activePlayers().isEmpty()) {
 			reset("Not enough players remain; match reset.");
 		}
 	}
 
 	public void tick() {
-		if (state == MatchState.COUNTDOWN) {
+		if (cleanupPending) {
+			if (arena.tickCleanup()) {
+				cleanupPending = false;
+				bossbar.removeAllPlayers();
+				bossbar.setVisible(false);
+				ScoreboardDisplay.clear(server);
+			}
+			return;
+		}
+		tickCategoryTest();
+		arena.tickModifiers();
+		if (state == MatchState.PREPARING_ARENA) {
+			arena.tickPreparation();
+			updatePreparationPresentation();
+			if (arena.ready()) {
+				arena.placeParticipants(config);
+				state = MatchState.PRE_GAME_COUNTDOWN;
+				countdownTicks = config.preGameCountdownSeconds() * 20;
+				title("Arena ready", "Get ready!");
+				playSound(SoundEvents.NOTE_BLOCK_CHIME.value(), 1.0f, 0.8f);
+			}
+			return;
+		}
+		if (state == MatchState.PRE_GAME_COUNTDOWN || state == MatchState.COUNTDOWN) {
+			arena.holdFrozen();
+			playCountdownCue(countdownTicks);
 			if (--countdownTicks <= 0) {
+				arena.release();
+				playSound(SoundEvents.NOTE_BLOCK_BELL.value(), 1.0f, 1.6f);
 				state = MatchState.ROUND_ACTIVE;
 				startRound();
 			} else {
 				updatePresentation();
+			}
+			return;
+		}
+		if (state == MatchState.INTERMISSION) {
+			if (--intermissionTicks <= 0) {
+				state = MatchState.ROUND_ACTIVE;
+				startRound();
+			} else {
+				updateIntermissionPresentation();
 			}
 			return;
 		}
@@ -115,11 +176,12 @@ public final class MinuteRushGame {
 		}
 		if (--ticksRemaining <= 0) {
 			server.getPlayerList().broadcastSystemMessage(Component.literal("Time's up! The round is skipped."), false);
-			title("Time's up!", "Round skipped");
+			beginIntermission("No one completed the task! Skipping...");
 			playSound(SoundEvents.NOTE_BLOCK_BASS.value(), 0.9f, 0.7f);
-			beginCountdown();
 			return;
 		}
+		arena.expandBorder(config);
+		updatePlayerInteractionGlow();
 		updatePresentation();
 		for (ServerPlayer player : activePlayers()) {
 			trackStandingBlock(player);
@@ -131,8 +193,9 @@ public final class MinuteRushGame {
 	}
 
 	public String start() {
-		if (activePlayers().size() < 2) {
-			return "At least two players are required to start.";
+		clearCategoryTest();
+		if (state != MatchState.IDLE && state != MatchState.MATCH_OVER) {
+			return "A match is already in progress.";
 		}
 		participants.clear();
 		recentTaskIds.clear();
@@ -143,6 +206,7 @@ public final class MinuteRushGame {
 	}
 
 	public String startSolo(ServerPlayer player) {
+		clearCategoryTest();
 		participants.clear();
 		participants.add(player.getUUID());
 		return beginMatch("Singleplayer test mode started. Use /minute-rush solo-exit to stop.");
@@ -151,36 +215,72 @@ public final class MinuteRushGame {
 	private String beginMatch(String message) {
 		scores.replaceAll((id, score) -> 0);
 		recentTaskIds.clear();
-		state = MatchState.COUNTDOWN;
-		countdownTicks = 100;
-		title("Minute Rush", "Get ready!");
+		intermissionTicks = 0;
+		currentTaskId = null;
+		state = MatchState.PREPARING_ARENA;
+		title("Generating Arena...", "Please wait");
+		arena.beginPreparation(activePlayers().stream().toList(), config);
 		ScoreboardDisplay.refresh(server, this);
 		updatePresentation();
 		return message;
 	}
 
 	public String reset(String message) {
+		clearCategoryTest();
+		arena.restoreLobbyState();
+		cleanupPending = arena.cleanupActive();
 		state = MatchState.IDLE;
 		task = null;
 		recentTaskIds.clear();
 		ticksRemaining = 0;
 		countdownTicks = 0;
+		intermissionTicks = 0;
+		currentTaskId = null;
 		participants.clear();
 		scores.replaceAll((id, score) -> 0);
 		server.getPlayerList().broadcastSystemMessage(Component.literal(message), false);
-		ScoreboardDisplay.clear(server);
-		bossbar.removeAllPlayers();
-		bossbar.setVisible(false);
+		if (!cleanupPending) {
+			ScoreboardDisplay.clear(server);
+			bossbar.removeAllPlayers();
+			bossbar.setVisible(false);
+		}
 		return message;
 	}
 
 	public String skipRound() {
-		if (state != MatchState.ROUND_ACTIVE && state != MatchState.COUNTDOWN) {
+		if (state != MatchState.ROUND_ACTIVE && state != MatchState.COUNTDOWN
+				&& state != MatchState.PRE_GAME_COUNTDOWN && state != MatchState.INTERMISSION) {
 			return "No round is active.";
 		}
 		server.getPlayerList().broadcastSystemMessage(Component.literal("Round skipped by operator."), false);
-		beginCountdown();
+		beginIntermission("Round skipped by operator.");
 		return "Round skipped.";
+	}
+
+	public boolean isCategoryTest(ServerPlayer player) {
+		return testPlayer != null && testPlayer.getUUID().equals(player.getUUID());
+	}
+
+	public String startCategoryTest(ServerPlayer player, String category) {
+		List<TaskFactory.Selection> selections = TaskFactory.category(server.overworld(), category);
+		if (selections.isEmpty()) {
+			return "Unknown or empty test category: " + category;
+		}
+		clearCategoryTest();
+		testPlayer = player;
+		testCategory = category;
+		testSelections = selections;
+		testIndex = 0;
+		assignTestTask();
+		return "Category test started: " + category + ".";
+	}
+
+	public String skipTestTask(ServerPlayer player) {
+		if (!isCategoryTest(player)) {
+			return "No category test is active for this player.";
+		}
+		advanceTestTask();
+		return "Test task skipped.";
 	}
 
 	public String status() {
@@ -193,10 +293,12 @@ public final class MinuteRushGame {
 		TaskFactory.Selection selection = TaskFactory.next(server.overworld(), random, Set.copyOf(recentTaskIds),
 			activePlayers().size() > 1);
 		task = selection.task();
+		currentTaskId = selection.id();
 		recentTaskIds.addLast(selection.id());
 		while (recentTaskIds.size() > 3) {
 			recentTaskIds.removeFirst();
 		}
+
 		ticksRemaining = config.roundDurationSeconds() * 20;
 		server.getPlayerList().broadcastSystemMessage(Component.literal("New round: " + task.description()), false);
 		title("NEW TASK", task.description());
@@ -209,11 +311,75 @@ public final class MinuteRushGame {
 		updatePresentation();
 	}
 
-	private void beginCountdown() {
-		state = MatchState.COUNTDOWN;
-		countdownTicks = 60;
-		title("Next round", "Starting soon...");
-		playSound(SoundEvents.NOTE_BLOCK_HAT.value(), 0.8f, 1.0f);
+	private void tickCategoryTest() {
+		if (testPlayer != null && testTask != null && testTask.isComplete(testPlayer)) {
+			advanceTestTask();
+		}
+	}
+
+	private void advanceTestTask() {
+		testIndex = (testIndex + 1) % testSelections.size();
+		assignTestTask();
+	}
+
+	private void assignTestTask() {
+		testTask = testSelections.get(testIndex).task();
+		testTask.begin(testPlayer);
+		testPlayer.sendSystemMessage(Component.literal(
+			"Category test [" + testCategory + "] " + (testIndex + 1) + "/" + testSelections.size()
+				+ ": " + testTask.description()).withStyle(ChatFormatting.AQUA));
+	}
+
+	private void clearCategoryTest() {
+		testPlayer = null;
+		testCategory = null;
+		testSelections = List.of();
+		testIndex = 0;
+		testTask = null;
+	}
+
+	private void beginIntermission(String message) {
+		state = MatchState.INTERMISSION;
+		intermissionMessage = message;
+		intermissionTicks = config.interRoundBreakSeconds() * 20;
+		lastIntermissionSecond = -1;
+		clearPlayerInteractionGlow();
+		title("Round complete", message);
+		playSound(SoundEvents.NOTE_BLOCK_CHIME.value(), 1.0f, 0.8f);
+		updatePresentation();
+	}
+
+	private void playCountdownCue(int ticks) {
+		if (ticks <= 0 || ticks % 20 != 0) {
+			return;
+		}
+		int seconds = Math.max(1, (ticks + 19) / 20);
+		playSound(SoundEvents.NOTE_BLOCK_CHIME.value(), 1.0f, countdownPitch(seconds));
+	}
+
+	private static float countdownPitch(int seconds) {
+		return switch (seconds) {
+			case 1 -> 1.2f;
+			case 2 -> 0.9f;
+			default -> 0.6f;
+		};
+	}
+
+	private void updateIntermissionPresentation() {
+		int elapsed = config.interRoundBreakSeconds() * 20 - intermissionTicks;
+		int second = Math.max(1, (intermissionTicks + 19) / 20);
+		if (elapsed >= 40 && second != lastIntermissionSecond) {
+			int seconds = Math.max(1, Math.min(3, (intermissionTicks + 19) / 20));
+			title(Integer.toString(seconds), "Next round");
+			if (second != lastIntermissionSecond) {
+				playSound(SoundEvents.NOTE_BLOCK_CHIME.value(), 1.0f,
+					countdownPitch(seconds));
+			}
+			lastIntermissionSecond = second;
+		} else if (elapsed < 40 && lastIntermissionSecond != 0) {
+			title("Round complete", intermissionMessage);
+			lastIntermissionSecond = 0;
+		}
 		updatePresentation();
 	}
 
@@ -277,16 +443,23 @@ public final class MinuteRushGame {
 		for (ServerPlayer player : activePlayers()) {
 			bossbar.addPlayer(player);
 		}
-		bossbar.setVisible(state == MatchState.COUNTDOWN || state == MatchState.ROUND_ACTIVE);
+		bossbar.setVisible(state == MatchState.COUNTDOWN || state == MatchState.PRE_GAME_COUNTDOWN
+			|| state == MatchState.ROUND_ACTIVE || state == MatchState.INTERMISSION);
 		if (state == MatchState.ROUND_ACTIVE && ticksRemaining > 0) {
 			bossbar.setName(Component.literal(task.description() + "  |  " + timeScore() + "s")
 				.withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD));
 			bossbar.setProgress(Math.max(0.0f, Math.min(1.0f,
 				(float) ticksRemaining / (config.roundDurationSeconds() * 20.0f))));
-		} else if (state == MatchState.COUNTDOWN) {
+		} else if (state == MatchState.COUNTDOWN || state == MatchState.PRE_GAME_COUNTDOWN) {
 			bossbar.setName(Component.literal("Next round in " + Math.max(1, (countdownTicks + 19) / 20) + "s")
 				.withStyle(ChatFormatting.YELLOW, ChatFormatting.BOLD));
-			bossbar.setProgress(Math.max(0.0f, Math.min(1.0f, countdownTicks / 100.0f)));
+			bossbar.setProgress(Math.max(0.0f, Math.min(1.0f,
+				countdownTicks / (float) (config.preGameCountdownSeconds() * 20))));
+		} else if (state == MatchState.INTERMISSION) {
+			bossbar.setName(Component.literal("Next round in " + Math.max(1, (intermissionTicks + 19) / 20) + "s")
+				.withStyle(ChatFormatting.YELLOW, ChatFormatting.BOLD));
+			bossbar.setProgress(Math.max(0.0f, Math.min(1.0f,
+				intermissionTicks / (float) (config.interRoundBreakSeconds() * 20))));
 		}
 		ScoreboardDisplay.refresh(server, this);
 	}
@@ -305,9 +478,50 @@ public final class MinuteRushGame {
 			playSound(SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
 			bossbar.setVisible(false);
 			server.getPlayerList().broadcastSystemMessage(Component.literal(winner.getGameProfile().name() + " wins the match! Use /minute-rush start to play again."), false);
+			arena.restoreLobbyState();
+			cleanupPending = arena.cleanupActive();
+			state = MatchState.IDLE;
 		} else {
-			beginCountdown();
+			beginIntermission(winnerName + " wins the round!");
 		}
+	}
+
+	public void playerDied(ServerPlayer player) {
+		if (state == MatchState.ROUND_ACTIVE && isDeathTask()) {
+			arena.enableKeepInventory(config.keepInventoryGraceSeconds());
+		}
+	}
+
+	private boolean isDeathTask() {
+		return currentTaskId != null && (currentTaskId.startsWith("kill-")
+			|| currentTaskId.endsWith("-damage") || currentTaskId.equals("fall-damage"));
+	}
+
+	private void updatePlayerInteractionGlow() {
+		if (!"interact-player".equals(currentTaskId)) {
+			clearPlayerInteractionGlow();
+			return;
+		}
+		for (ServerPlayer player : activePlayers()) {
+			player.addEffect(new MobEffectInstance(MobEffects.GLOWING, 40, 0, false, false));
+		}
+	}
+
+	private void clearPlayerInteractionGlow() {
+		for (ServerPlayer player : activePlayers()) {
+			player.removeEffect(MobEffects.GLOWING);
+		}
+	}
+
+	private void updatePreparationPresentation() {
+		for (ServerPlayer player : activePlayers()) {
+			bossbar.addPlayer(player);
+		}
+		bossbar.setVisible(true);
+		bossbar.setName(Component.literal("Generating Arena... " + arena.generatedChunks() + "/" + arena.totalChunks())
+			.withStyle(ChatFormatting.YELLOW, ChatFormatting.BOLD));
+		bossbar.setProgress(arena.totalChunks() == 0 ? 0.0f
+			: Math.min(1.0f, arena.generatedChunks() / (float) arena.totalChunks()));
 	}
 
 	private java.util.Collection<ServerPlayer> activePlayers() {

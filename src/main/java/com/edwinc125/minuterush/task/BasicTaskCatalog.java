@@ -14,8 +14,9 @@ public final class BasicTaskCatalog {
 			block("dirt", Blocks.DIRT, 1.25), block("coarse-dirt", Blocks.COARSE_DIRT, 1.0),
 			block("rooted-dirt", Blocks.ROOTED_DIRT, 0.75), block("mud", Blocks.MUD, 0.75),
 			block("sand", Blocks.SAND, 1.25), block("red-sand", Blocks.RED_SAND, 0.75),
-			block("gravel", Blocks.GRAVEL, 1.0), block("clay", Blocks.CLAY, 0.75),
-			block("snow-block", Blocks.SNOW_BLOCK, 0.75),
+			block("gravel", Blocks.GRAVEL, 1.0),
+			mappedBlock("clay", Blocks.CLAY, Items.CLAY_BALL, null, 0.75),
+			mappedBlock("snow-block", Blocks.SNOW_BLOCK, Items.SNOWBALL, null, 0.75),
 			block("oak-log", Blocks.OAK_LOG, 1.25), block("spruce-log", Blocks.SPRUCE_LOG, 1.0),
 			block("birch-log", Blocks.BIRCH_LOG, 1.0), block("jungle-log", Blocks.JUNGLE_LOG, 0.75),
 			block("acacia-log", Blocks.ACACIA_LOG, 0.75), block("dark-oak-log", Blocks.DARK_OAK_LOG, 0.75),
@@ -23,7 +24,8 @@ public final class BasicTaskCatalog {
 			block("oak-planks", Blocks.OAK_PLANKS, 1.25), block("spruce-planks", Blocks.SPRUCE_PLANKS, 1.0),
 			block("birch-planks", Blocks.BIRCH_PLANKS, 1.0), block("jungle-planks", Blocks.JUNGLE_PLANKS, 0.75),
 			block("acacia-planks", Blocks.ACACIA_PLANKS, 0.75), block("dark-oak-planks", Blocks.DARK_OAK_PLANKS, 0.75),
-			block("stone", Blocks.STONE, 1.25), block("cobblestone", Blocks.COBBLESTONE, 1.25),
+			mappedBlock("stone", Blocks.STONE, Items.COBBLESTONE, Blocks.COBBLESTONE, 1.25),
+			block("cobblestone", Blocks.COBBLESTONE, 1.25),
 			mineOnly("deepslate", Blocks.DEEPSLATE, 0.30),
 			block("cobbled-deepslate", Blocks.COBBLED_DEEPSLATE, 0.75),
 			block("andesite", Blocks.ANDESITE, 0.75), block("diorite", Blocks.DIORITE, 0.75),
@@ -43,30 +45,40 @@ public final class BasicTaskCatalog {
 			item("flint", Items.FLINT, 0.75), item("leather", Items.LEATHER, 0.75),
 			item("string", Items.STRING, 0.75), item("bone", Items.BONE, 0.75),
 			item("feather", Items.FEATHER, 0.75), item("ink-sac", Items.INK_SAC, 0.75),
-			item("glow-ink-sac", Items.GLOW_INK_SAC, 0.30)
+			item("glow-ink-sac", Items.GLOW_INK_SAC, 0.30),
+			holdOnly("clock", Items.CLOCK, 1.0)
 		);
 	}
 
 	private static Entry block(String id, Block block, double weight) {
-		return new Entry(id, block.asItem(), block, true, true, true, true, weight);
+		return mappedBlock(id, block, block.asItem(), block, weight);
 	}
 
 	private static Entry mineOnly(String id, Block block, double weight) {
-		return new Entry(id, block.asItem(), block, true, false, false, false, weight);
+		return new Entry(id, block.asItem(), block, null, true, false, false, false, weight);
 	}
 
 	private static Entry vegetation(String id, Block block, double weight) {
-		return new Entry(id, block.asItem(), block, false, true, true, true, weight);
+		return new Entry(id, block.asItem(), block, block, false, true, true, true, weight);
 	}
 
 	private static Entry item(String id, Item item, double weight) {
-		return new Entry(id, item, null, false, false, true, true, weight);
+		return new Entry(id, item, null, null, false, false, true, true, weight);
+	}
+
+	private static Entry holdOnly(String id, Item item, double weight) {
+		return new Entry(id, item, null, null, false, false, false, true, weight);
+	}
+
+	private static Entry mappedBlock(String id, Block mineBlock, Item item, Block placeBlock, double weight) {
+		return new Entry(id, item, mineBlock, placeBlock, true, placeBlock != null, true, true, weight);
 	}
 
 	public record Entry(
 		String id,
 		Item item,
 		Block block,
+		Block placeBlock,
 		boolean mine,
 		boolean place,
 		boolean collect,

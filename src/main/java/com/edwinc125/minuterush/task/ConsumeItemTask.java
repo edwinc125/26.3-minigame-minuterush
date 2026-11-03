@@ -10,14 +10,23 @@ import net.minecraft.world.item.Item;
 
 public final class ConsumeItemTask implements MinuteRushTask {
 	private final Item item;
+	private final boolean anyPotion;
 	private final Map<UUID, Integer> baselines = new HashMap<>();
 
 	public ConsumeItemTask(Item item) {
+		this(item, false);
+	}
+
+	public ConsumeItemTask(Item item, boolean anyPotion) {
 		this.item = item;
+		this.anyPotion = anyPotion;
 	}
 
 	@Override
 	public String description() {
+		if (anyPotion) {
+			return "Drink a water bottle or any potion";
+		}
 		String verb = item == net.minecraft.world.item.Items.MILK_BUCKET
 			|| item == net.minecraft.world.item.Items.POTION ? "Drink " : "Eat ";
 		if (item == net.minecraft.world.item.Items.HONEY_BOTTLE) {
@@ -28,13 +37,15 @@ public final class ConsumeItemTask implements MinuteRushTask {
 
 	@Override
 	public void begin(ServerPlayer player) {
-		baselines.put(player.getUUID(), player.getStats().getValue(Stats.ITEM_USED, item));
+		baselines.put(player.getUUID(), player.getStats().getValue(Stats.ITEM_USED,
+			anyPotion ? net.minecraft.world.item.Items.POTION : item));
 		player.sendSystemMessage(Component.literal(description()).withStyle(net.minecraft.ChatFormatting.GOLD));
 	}
 
 	@Override
 	public boolean isComplete(ServerPlayer player) {
-		return player.getStats().getValue(Stats.ITEM_USED, item)
+		return player.getStats().getValue(Stats.ITEM_USED,
+				anyPotion ? net.minecraft.world.item.Items.POTION : item)
 			> baselines.getOrDefault(player.getUUID(), 0);
 	}
 }

@@ -3,8 +3,10 @@ package com.edwinc125.minuterush.command;
 import com.edwinc125.minuterush.game.MinuteRushGame;
 import java.util.function.Supplier;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.permissions.Permissions;
 
@@ -22,6 +24,14 @@ public final class MinuteRushCommands {
 				.executes(context -> execute(context.getSource(), gameSupplier, "solo-exit")))
 			.then(Commands.literal("skip")
 				.executes(context -> execute(context.getSource(), gameSupplier, "skip")))
+			.then(Commands.literal("test")
+				.then(Commands.literal("skip")
+					.executes(context -> testSkip(context.getSource(), gameSupplier)))
+				.then(Commands.argument("category", StringArgumentType.word())
+					.suggests((context, builder) -> SharedSuggestionProvider.suggest(
+						java.util.List.of("movement", "crafting", "combat", "basic", "interactive"), builder))
+					.executes(context -> testStart(context.getSource(), gameSupplier,
+						StringArgumentType.getString(context, "category")))))
 			.then(Commands.literal("reset").executes(context -> execute(context.getSource(), gameSupplier, "reset")))
 			.then(Commands.literal("config")
 				.then(Commands.literal("score")
@@ -60,9 +70,41 @@ public final class MinuteRushCommands {
 		String message = switch (action) {
 			case "start" -> game.start();
 			case "solo-exit" -> game.reset("Singleplayer test mode stopped.");
-			case "skip" -> game.skipRound();
-			default -> game.reset("Match reset.");
+			case "skip" -> source.getPlayer() != null && game.isCategoryTest(source.getPlayer())
+				? game.skipTestTask(source.getPlayer()) : game.skipRound();
+			case "reset" -> game.reset("Match reset.");
+			default -> "Unknown command action.";
 		};
+		source.sendSuccess(() -> Component.literal(message), true);
+		return 1;
+	}
+
+	private static int testStart(CommandSourceStack source, Supplier<MinuteRushGame> supplier, String category) {
+		MinuteRushGame game = supplier.get();
+		if (game == null || source.getPlayer() == null) {
+			source.sendFailure(Component.literal("Run this command as an operator player in a world."));
+			return 0;
+		}
+		String message = game.startCategoryTest(source.getPlayer(), category);
+		if (message.startsWith("Unknown") || message.startsWith("No tasks")) {
+			source.sendFailure(Component.literal(message));
+			return 0;
+		}
+		source.sendSuccess(() -> Component.literal(message), true);
+		return 1;
+	}
+
+	private static int testSkip(CommandSourceStack source, Supplier<MinuteRushGame> supplier) {
+		MinuteRushGame game = supplier.get();
+		if (game == null || source.getPlayer() == null) {
+			source.sendFailure(Component.literal("Run this command as an operator player in a world."));
+			return 0;
+		}
+		String message = game.skipTestTask(source.getPlayer());
+		if (message.startsWith("No category")) {
+			source.sendFailure(Component.literal(message));
+			return 0;
+		}
 		source.sendSuccess(() -> Component.literal(message), true);
 		return 1;
 	}

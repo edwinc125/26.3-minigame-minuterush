@@ -75,8 +75,14 @@ public final class MinuteRushMod implements ModInitializer {
 			String block = blockId(serverPlayer, hitResult.getBlockPos());
 			EntityTaskProgress.record(serverPlayer.getUUID(), "block:use:" + block);
 			recordBlockUse(serverPlayer, block);
-			if (isSeed(heldBefore.getItem()) || isBucket(heldBefore.getItem())) {
+			if (isSeed(heldBefore.getItem())) {
 				recordSuccessfulItemUse(serverPlayer, hand, hitResult, heldBefore);
+			}
+			if (isBucket(heldBefore.getItem())) {
+				recordDeferredBucketUse(serverPlayer, hand, heldBefore);
+			}
+			if (isHoe(heldBefore.getItem())) {
+				recordDeferredToolUse(serverPlayer, hand, heldBefore, "use:hoe");
 			}
 			if (serverPlayer.isCrouching()) {
 				EntityTaskProgress.record(serverPlayer.getUUID(), "block:place:crouch");
@@ -92,8 +98,8 @@ public final class MinuteRushMod implements ModInitializer {
 				BlockState state = world.getBlockState(hitResult.getBlockPos());
 				if (state.hasProperty(net.minecraft.world.level.block.CampfireBlock.LIT)
 						&& !state.getValue(net.minecraft.world.level.block.CampfireBlock.LIT)
-						&& serverPlayer.getItemInHand(hand).is(Items.FLINT_AND_STEEL)) {
-					recordSuccessfulCampfireLighting(serverPlayer, hitResult.getBlockPos());
+						&& heldBefore.is(Items.FLINT_AND_STEEL)) {
+					recordSuccessfulCampfireLighting(serverPlayer, hitResult.getBlockPos(), heldBefore, hand);
 				}
 				if (state.hasProperty(net.minecraft.world.level.block.CampfireBlock.LIT)
 						&& state.getValue(net.minecraft.world.level.block.CampfireBlock.LIT)
@@ -109,24 +115,15 @@ public final class MinuteRushMod implements ModInitializer {
 			if (game != null && !world.isClientSide() && player instanceof ServerPlayer serverPlayer) {
 				ItemStack heldBefore = serverPlayer.getItemInHand(hand).copy();
 				String entityId = BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).getPath();
-				if (isBoat(heldBefore.getItem()) && !entity.isPassenger()) {
-					EntityTaskProgress.record(serverPlayer.getUUID(), "use:boat-mob");
-				}
 				if (isFeedItem(heldBefore.getItem(), entityId)) {
 					EntityTaskProgress.record(serverPlayer.getUUID(), "feed:" + feedTarget(entityId));
 				}
-				if (entity instanceof net.minecraft.world.entity.animal.sheep.Sheep sheep
-						&& heldBefore.is(Items.SHEARS) && !sheep.isSheared()) {
-					recordSuccessfulShear(serverPlayer, hand, sheep,
-							sheep.getColor().getName());
+				if (heldBefore.is(Items.SHEARS)) {
+					recordDeferredToolUse(serverPlayer, hand, heldBefore, "use:shears");
 				}
-				if (entity instanceof net.minecraft.world.entity.animal.cow.Cow
+				if ("cow".equals(entityId)
 						&& heldBefore.is(Items.BUCKET)) {
 					recordSuccessfulMilking(serverPlayer, hand, entity, "use:milk-cow");
-				}
-				if (entity instanceof net.minecraft.world.entity.animal.cow.MushroomCow
-						&& heldBefore.is(Items.BUCKET)) {
-					recordSuccessfulMilking(serverPlayer, hand, entity, "use:milk-mooshroom");
 				}
 				game.entityUsed(serverPlayer, entity instanceof ServerPlayer ? "player" : entityId);
 			}
@@ -177,7 +174,8 @@ public final class MinuteRushMod implements ModInitializer {
 		});
 		ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
 			if (source.getEntity() instanceof ServerPlayer player) {
-				if (entity.getType().getCategory() == MobCategory.MONSTER) {
+			game.playerDied(player);
+			if (entity.getType().getCategory() == MobCategory.MONSTER) {
 					EntityTaskProgress.record(player.getUUID(), "kill:hostile");
 				}
 				if (entity instanceof Animal) {
@@ -198,14 +196,18 @@ public final class MinuteRushMod implements ModInitializer {
 		});
 		UseItemCallback.EVENT.register((player, world, hand) -> {
 			if (!world.isClientSide() && player instanceof ServerPlayer serverPlayer) {
-				Item item = serverPlayer.getItemInHand(hand).getItem();
+				ItemStack heldBefore = serverPlayer.getItemInHand(hand).copy();
+				Item item = heldBefore.getItem();
 				if (isBucket(item)) {
 					return InteractionResult.PASS;
 				}
 				String itemId = BuiltInRegistries.ITEM.getKey(item).getPath();
-				EntityTaskProgress.record(serverPlayer.getUUID(), "use:" + itemId);
-				if ("flint_and_steel".equals(itemId)) {
-					EntityTaskProgress.record(serverPlayer.getUUID(), "block:use:campfire");
+				if (isEggItem(item)) {
+					EntityTaskProgress.record(serverPlayer.getUUID(), "use:egg");
+				} else if ("flint_and_steel".equals(itemId) || "shears".equals(itemId)) {
+					recordDeferredToolUse(serverPlayer, hand, heldBefore, "use:" + itemId);
+				} else {
+					EntityTaskProgress.record(serverPlayer.getUUID(), "use:" + itemId);
 				}
 			}
 			return InteractionResult.PASS;
@@ -312,14 +314,42 @@ public final class MinuteRushMod implements ModInitializer {
 				return;
 			}
 			Item beforeItem = heldBefore.getItem();
-			Item afterItem = player.getItemInHand(hand).getItem();
 			if (isSeed(beforeItem) && plantedCrop(player, hitResult.getBlockPos(), clickedBefore,
 					adjacentPos, adjacentBefore)) {
 				EntityTaskProgress.record(player.getUUID(), "block:place:seed");
 			}
-			if (isBucket(beforeItem) && successfulBucketUse(player, beforeItem, afterItem,
-					hitResult.getBlockPos(), adjacentPos)) {
+		});
+	}
+
+	private static void recordDeferredBucketUse(ServerPlayer player, InteractionHand hand,
+			ItemStack heldBefore) {
+		player.level().getServer().execute(() -> {
+			if (game == null || !player.isAlive()) {
+				return;
+			}
+			Item before = heldBefore.getItem();
+			Item after = player.getItemInHand(hand).getItem();
+			boolean filled = before == Items.BUCKET
+					&& (after == Items.WATER_BUCKET || after == Items.LAVA_BUCKET);
+			boolean emptied = (before == Items.WATER_BUCKET || before == Items.LAVA_BUCKET)
+					&& after == Items.BUCKET;
+			if (filled || emptied) {
 				EntityTaskProgress.record(player.getUUID(), "use:bucket");
+			}
+		});
+	}
+
+	private static void recordDeferredToolUse(ServerPlayer player, InteractionHand hand,
+			ItemStack heldBefore, String event) {
+		player.level().getServer().execute(() -> {
+			if (game == null || !player.isAlive()) {
+				return;
+			}
+			if (toolDurabilityDecreased(heldBefore, player.getItemInHand(hand))) {
+				EntityTaskProgress.record(player.getUUID(), event);
+				if ("use:flint_and_steel".equals(event)) {
+					EntityTaskProgress.record(player.getUUID(), "block:use:campfire");
+				}
 			}
 		});
 	}
@@ -334,25 +364,18 @@ public final class MinuteRushMod implements ModInitializer {
 		});
 	}
 
-	private static void recordSuccessfulShear(ServerPlayer player, InteractionHand hand,
-			net.minecraft.world.entity.animal.sheep.Sheep sheep, String color) {
-		player.level().getServer().execute(() -> {
-			if (game == null || !sheep.isAlive()) {
-				return;
-			}
-			if (sheep.isSheared()) {
-				EntityTaskProgress.record(player.getUUID(), "use:shear-sheep");
-				EntityTaskProgress.record(player.getUUID(), "use:shear-sheep:" + color);
-			}
-		});
+	private static boolean toolDurabilityDecreased(ItemStack before, ItemStack after) {
+		return before.getItem() == after.getItem()
+				&& after.getDamageValue() > before.getDamageValue();
 	}
 
 	private static void recordSuccessfulCampfireLighting(ServerPlayer player,
-			net.minecraft.core.BlockPos pos) {
+			net.minecraft.core.BlockPos pos, ItemStack heldBefore, InteractionHand hand) {
 		player.level().getServer().execute(() -> {
 			BlockState state = player.level().getBlockState(pos);
 			if (game != null && state.hasProperty(net.minecraft.world.level.block.CampfireBlock.LIT)
-					&& state.getValue(net.minecraft.world.level.block.CampfireBlock.LIT)) {
+					&& state.getValue(net.minecraft.world.level.block.CampfireBlock.LIT)
+					&& toolDurabilityDecreased(heldBefore, player.getItemInHand(hand))) {
 				EntityTaskProgress.record(player.getUUID(), "block:campfire:light");
 			}
 		});
@@ -369,19 +392,6 @@ public final class MinuteRushMod implements ModInitializer {
 
 	private static boolean isNewCrop(BlockState before, BlockState after) {
 		return !(before.getBlock() instanceof CropBlock) && after.getBlock() instanceof CropBlock;
-	}
-
-	private static boolean successfulBucketUse(ServerPlayer player, Item before, Item after,
-			net.minecraft.core.BlockPos clickedPos, net.minecraft.core.BlockPos adjacentPos) {
-		boolean filled = before == Items.BUCKET
-				&& (after == Items.WATER_BUCKET || after == Items.LAVA_BUCKET);
-		boolean placedWater = before == Items.WATER_BUCKET && after == Items.BUCKET
-				&& (hasWater(player, clickedPos) || hasWater(player, adjacentPos));
-		return filled || placedWater;
-	}
-
-	private static boolean hasWater(ServerPlayer player, net.minecraft.core.BlockPos pos) {
-		return player.level().getFluidState(pos).is(Fluids.WATER);
 	}
 
 	private static String blockName(BlockState state) {
@@ -408,8 +418,13 @@ public final class MinuteRushMod implements ModInitializer {
 		}
 	}
 
-	private static boolean isBoat(Item item) {
-		return BuiltInRegistries.ITEM.getKey(item).getPath().endsWith("boat");
+	private static boolean isHoe(Item item) {
+		return BuiltInRegistries.ITEM.getKey(item).getPath().endsWith("_hoe");
+	}
+
+	private static boolean isEggItem(Item item) {
+		String id = BuiltInRegistries.ITEM.getKey(item).getPath();
+		return item == Items.EGG || id.endsWith("_egg");
 	}
 
 	private static boolean isFeedItem(Item item, String entityId) {
@@ -418,10 +433,7 @@ public final class MinuteRushMod implements ModInitializer {
 			case "cow", "sheep" -> "wheat".equals(id);
 			case "pig" -> id.equals("carrot") || id.equals("potato") || id.equals("beetroot");
 			case "chicken" -> id.endsWith("_seeds");
-			case "wolf" -> id.endsWith("_meat") || id.equals("rotten_flesh");
 			case "cat" -> id.equals("cod") || id.equals("salmon");
-			case "horse", "donkey" -> id.equals("wheat") || id.equals("hay_block")
-				|| id.equals("golden_apple") || id.equals("golden_carrot");
 			default -> false;
 		};
 	}

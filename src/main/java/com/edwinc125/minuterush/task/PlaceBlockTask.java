@@ -1,10 +1,8 @@
 package com.edwinc125.minuterush.task;
 
-import java.util.Set;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.stats.Stats;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 
 public final class PlaceBlockTask implements MinuteRushTask {
@@ -24,9 +22,6 @@ public final class PlaceBlockTask implements MinuteRushTask {
 	public void begin(ServerPlayer player) {
 		player.sendSystemMessage(Component.literal(description()).withStyle(net.minecraft.ChatFormatting.AQUA));
 		baselines.put(player.getUUID(), player.getStats().getValue(Stats.ITEM_USED, block.asItem()));
-		if (!player.getInventory().hasAnyOf(Set.of(block.asItem()))) {
-			player.getInventory().add(new ItemStack(block.asItem()));
-		}
 	}
 
 	@Override
