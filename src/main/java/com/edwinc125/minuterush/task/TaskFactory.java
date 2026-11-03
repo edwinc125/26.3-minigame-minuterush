@@ -4,13 +4,9 @@ import java.util.Random;
 import java.util.Set;
 import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.stats.Stats;
-import com.edwinc125.minuterush.game.ArenaManager;
 
 public final class TaskFactory {
 	private TaskFactory() {}
@@ -72,10 +68,9 @@ public final class TaskFactory {
 	private static void addBasicTasks(ServerLevel level, List<Selection> candidates) {
 		for (BasicTaskCatalog.Entry entry : BasicTaskCatalog.entries()) {
 			if (entry.block() != null) {
-				BlockPos target = level.getServer().getRespawnData().pos().below();
 				if (entry.mine()) {
 					candidates.add(new Selection("basic:" + entry.id() + ":mine",
-						createMineTask(level, target, entry.block()), entry.rarityWeight(), "mine"));
+						new DigBlockTask(entry.block()), entry.rarityWeight(), "mine"));
 				}
 				if (entry.place() && entry.placeBlock() != null) {
 					candidates.add(new Selection("basic:" + entry.id() + ":place",
@@ -92,12 +87,6 @@ public final class TaskFactory {
 						stack -> stack.is(entry.item())), entry.rarityWeight(), "hold"));
 			}
 		}
-	}
-
-	private static MinuteRushTask createMineTask(ServerLevel level, BlockPos target, Block block) {
-		level.setBlock(target, block.defaultBlockState(), 3);
-		ArenaManager.registerTaskBlock(level, target);
-		return new DigBlockTask(block, target);
 	}
 
 	private static void addLegacyTasks(ServerLevel level, List<Selection> candidates) {
