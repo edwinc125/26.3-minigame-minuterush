@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.edwinc125.minuterush.task.JumpProgressTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-11-03T14:15:36.917Z" hostname="Kans-Mac-mini.local" time="0.001">
+  <properties/>
+  <testcase name="doesNotAwardAPlayerWhoStartedInTheAir()" classname="com.edwinc125.minuterush.task.JumpProgressTest" time="0.001"/>
+  <testcase name="requiresARealAirborneTransition()" classname="com.edwinc125.minuterush.task.JumpProgressTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

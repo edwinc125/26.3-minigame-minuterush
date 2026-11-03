@@ -1,35 +1,32 @@
 package com.edwinc125.minuterush.task;
 
-import java.util.Set;
-import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.Blocks;
+import net.minecraft.stats.Stats;
+import net.minecraft.world.level.block.Block;
 
 public final class PlaceBlockTask implements MinuteRushTask {
-	private final BlockPos target;
+	private final Block block;
+	private final java.util.Map<java.util.UUID, Integer> baselines = new java.util.HashMap<>();
 
-	public PlaceBlockTask(BlockPos target) {
-		this.target = target.immutable();
+	public PlaceBlockTask(Block block) {
+		this.block = block;
 	}
 
 	@Override
 	public String description() {
-		return "Place a stone block at " + target.toShortString();
+		return "Place a " + TaskText.blockName(block).toLowerCase(java.util.Locale.ROOT) + " anywhere";
 	}
 
 	@Override
 	public void begin(ServerPlayer player) {
-		player.sendSystemMessage(Component.literal(description()));
-		if (!player.getInventory().hasAnyOf(Set.of(Blocks.STONE.asItem()))) {
-			player.getInventory().add(new ItemStack(Blocks.STONE.asItem()));
-		}
+		player.sendSystemMessage(Component.literal(description()).withStyle(net.minecraft.ChatFormatting.AQUA));
+		baselines.put(player.getUUID(), player.getStats().getValue(Stats.ITEM_USED, block.asItem()));
 	}
 
 	@Override
 	public boolean isComplete(ServerPlayer player) {
-		var level = player.serverLevel();
-		return level.getBlockState(target).is(Blocks.STONE);
+		int baseline = baselines.getOrDefault(player.getUUID(), 0);
+		return player.getStats().getValue(Stats.ITEM_USED, block.asItem()) > baseline;
 	}
 }

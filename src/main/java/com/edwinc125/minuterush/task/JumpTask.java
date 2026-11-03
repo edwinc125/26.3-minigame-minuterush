@@ -17,7 +17,8 @@ public final class JumpTask implements MinuteRushTask {
 	public void begin(ServerPlayer player) {
 		UUID id = player.getUUID();
 		progress.put(id, new JumpProgress(player.onGround()));
-		player.sendSystemMessage(net.minecraft.network.chat.Component.literal(description()));
+		player.sendSystemMessage(net.minecraft.network.chat.Component.literal(description())
+			.withStyle(net.minecraft.ChatFormatting.GREEN));
 	}
 
 	@Override

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.edwinc125.minuterush.task.CollectProgressTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-11-03T14:15:36.915Z" hostname="Kans-Mac-mini.local" time="0.0">
+  <properties/>
+  <testcase name="requiredAmountIsAddedToTheRoundBaseline()" classname="com.edwinc125.minuterush.task.CollectProgressTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
