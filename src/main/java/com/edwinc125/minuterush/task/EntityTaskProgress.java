@@ -14,6 +14,11 @@ public final class EntityTaskProgress {
 			.merge(event, 1, Integer::sum);
 	}
 
+	/** Event key for using an item, matching task keys like "use:flint-and-steel". */
+	public static String useEvent(String itemId) {
+		return "use:" + itemId.replace('_', '-');
+	}
+
 	public static int count(UUID playerId, String event) {
 		return COUNTS.getOrDefault(playerId, Map.of()).getOrDefault(event, 0);
 	}

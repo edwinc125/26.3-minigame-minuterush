@@ -5,6 +5,8 @@ import java.util.Set;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
 import net.minecraft.stats.Stats;
 
@@ -189,18 +191,23 @@ public final class TaskFactory {
 		event(candidates, "climb-vines", "climb:vines", "Climb vines");
 		event(candidates, "drop-item", "inventory:drop", "Drop an item");
 		event(candidates, "swap-offhand", "inventory:swap-offhand", "Swap an item to the offhand");
-		event(candidates, "shoot-bow", "use:bow", "Shoot a bow");
-		event(candidates, "fire-crossbow", "use:crossbow", "Fire a crossbow");
-		event(candidates, "throw-snowball", "use:snowball", "Throw a snowball");
-		event(candidates, "throw-egg", "use:egg", "Throw an egg");
-		event(candidates, "use-fishing-rod", "use:fishing-rod", "Use a fishing rod");
-		event(candidates, "use-flint-and-steel", "use:flint-and-steel", "Use flint and steel");
-		event(candidates, "use-shears", "use:shears", "Use shears");
-		event(candidates, "use-hoe", "use:hoe", "Use a hoe");
-		event(candidates, "use-bucket", "use:bucket", "Use a bucket");
-		event(candidates, "use-lead", "use:lead", "Use a lead");
-		event(candidates, "use-map", "use:map", "Use a map");
-		event(candidates, "use-compass", "use:compass", "Use a compass");
+		// Item tasks count vanilla's "item used" stat, which only rises when the item actually works
+		// (arrow fired, projectile thrown, block tilled/lit, map created, ...) and also counts in creative.
+		// The event key covers uses that vanilla does not track as a stat (see MinuteRushMod).
+		itemUse(candidates, "shoot-bow", "Shoot a bow", null, Items.BOW);
+		itemUse(candidates, "fire-crossbow", "Fire a crossbow", null, Items.CROSSBOW);
+		itemUse(candidates, "throw-snowball", "Throw a snowball", null, Items.SNOWBALL);
+		itemUse(candidates, "throw-egg", "Throw an egg", null, Items.EGG, Items.BLUE_EGG, Items.BROWN_EGG);
+		itemUse(candidates, "use-fishing-rod", "Use a fishing rod", null, Items.FISHING_ROD);
+		itemUse(candidates, "use-flint-and-steel", "Use flint and steel", "use:flint-and-steel", Items.FLINT_AND_STEEL);
+		itemUse(candidates, "use-shears", "Use shears", "use:shears", Items.SHEARS);
+		itemUse(candidates, "use-hoe", "Use a hoe", "use:hoe", Items.WOODEN_HOE, Items.STONE_HOE,
+			Items.COPPER_HOE, Items.IRON_HOE, Items.GOLDEN_HOE, Items.DIAMOND_HOE, Items.NETHERITE_HOE);
+		itemUse(candidates, "use-bucket", "Use a bucket", "use:bucket", Items.BUCKET, Items.WATER_BUCKET,
+			Items.LAVA_BUCKET);
+		itemUse(candidates, "use-lead", "Use a lead", "use:lead", Items.LEAD);
+		itemUse(candidates, "use-map", "Use a map", null, Items.MAP);
+		itemUse(candidates, "use-compass", "Use a compass", "use:compass", Items.COMPASS);
 		event(candidates, "use-shield", "use:shield", "Use a shield");
 		event(candidates, "break-leaves", "block:break:leaves", "Break leaves");
 		event(candidates, "break-torch", "block:break:torch", "Break a torch");
@@ -355,6 +362,19 @@ public final class TaskFactory {
 
 	private static void event(List<Selection> candidates, String id, String key, String prompt) {
 		candidates.add(new Selection(id, new EntityEventTask(key, prompt)));
+	}
+
+	private static void itemUse(List<Selection> candidates, String id, String prompt, String eventKey, Item... items) {
+		List<Item> tracked = List.of(items);
+		candidates.add(new Selection(id, new StatTask(prompt, 1, player -> itemUseCount(player, eventKey, tracked))));
+	}
+
+	static int itemUseCount(ServerPlayer player, String eventKey, List<Item> items) {
+		int total = eventKey == null ? 0 : EntityTaskProgress.count(player.getUUID(), eventKey);
+		for (Item item : items) {
+			total += player.getStats().getValue(Stats.ITEM_USED, item);
+		}
+		return total;
 	}
 
 	private static void stat(List<Selection> candidates, String id, String prompt,

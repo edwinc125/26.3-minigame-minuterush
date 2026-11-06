@@ -27,6 +27,7 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.Leashable;
 import net.minecraft.world.entity.vehicle.VehicleEntity;
 import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.level.block.state.BlockState;
@@ -84,14 +85,25 @@ public final class MinuteRushMod implements ModInitializer {
 			if (isHoe(heldBefore.getItem())) {
 				recordDeferredToolUse(serverPlayer, hand, heldBefore, "use:hoe");
 			}
+			if (heldBefore.is(Items.FLINT_AND_STEEL)) {
+				// Lighting TNT has no vanilla stat; fires and campfires are also covered by the stat.
+				recordDeferredToolUse(serverPlayer, hand, heldBefore, EntityTaskProgress.useEvent("flint_and_steel"));
+			}
+			if (heldBefore.is(Items.SHEARS)) {
+				// Carving a pumpkin or harvesting a beehive has no vanilla stat.
+				recordDeferredToolUse(serverPlayer, hand, heldBefore, "use:shears");
+			}
 			if (serverPlayer.isCrouching()) {
 				EntityTaskProgress.record(serverPlayer.getUUID(), "block:place:crouch");
 			}
-			if (block.endsWith("_door") && !world.getBlockState(hitResult.getBlockPos()).getValue(net.minecraft.world.level.block.DoorBlock.OPEN)) {
-				EntityTaskProgress.record(serverPlayer.getUUID(), "block:open:door");
+			BlockState clickedState = world.getBlockState(hitResult.getBlockPos());
+			if (clickedState.getBlock() instanceof net.minecraft.world.level.block.DoorBlock
+					&& !clickedState.getValue(net.minecraft.world.level.block.DoorBlock.OPEN)) {
+				recordDeferredOpen(serverPlayer, hitResult.getBlockPos(), clickedState, "block:open:door");
 			}
-			if (block.endsWith("_trapdoor") && !world.getBlockState(hitResult.getBlockPos()).getValue(net.minecraft.world.level.block.TrapDoorBlock.OPEN)) {
-				EntityTaskProgress.record(serverPlayer.getUUID(), "block:open:trapdoor");
+			if (clickedState.getBlock() instanceof net.minecraft.world.level.block.TrapDoorBlock
+					&& !clickedState.getValue(net.minecraft.world.level.block.TrapDoorBlock.OPEN)) {
+				recordDeferredOpen(serverPlayer, hitResult.getBlockPos(), clickedState, "block:open:trapdoor");
 			}
 			if (block.contains("campfire")) {
 				EntityTaskProgress.record(serverPlayer.getUUID(), "block:use:campfire");
@@ -120,6 +132,15 @@ public final class MinuteRushMod implements ModInitializer {
 				}
 				if (heldBefore.is(Items.SHEARS)) {
 					recordDeferredToolUse(serverPlayer, hand, heldBefore, "use:shears");
+				}
+				if (heldBefore.is(Items.FLINT_AND_STEEL)) {
+					// Igniting a creeper.
+					recordDeferredToolUse(serverPlayer, hand, heldBefore, EntityTaskProgress.useEvent("flint_and_steel"));
+				}
+				if (heldBefore.is(Items.LEAD) && entity instanceof Leashable leashable
+						&& leashable.getLeashHolder() != serverPlayer) {
+					// Leashing a mob has no vanilla stat (tying to a fence does).
+					recordSuccessfulLeash(serverPlayer, leashable);
 				}
 				if ("cow".equals(entityId)
 						&& heldBefore.is(Items.BUCKET)) {
@@ -201,13 +222,12 @@ public final class MinuteRushMod implements ModInitializer {
 				if (isBucket(item)) {
 					return InteractionResult.PASS;
 				}
-				String itemId = BuiltInRegistries.ITEM.getKey(item).getPath();
-				if (isEggItem(item)) {
-					EntityTaskProgress.record(serverPlayer.getUUID(), "use:egg");
-				} else if ("flint_and_steel".equals(itemId) || "shears".equals(itemId)) {
-					recordDeferredToolUse(serverPlayer, hand, heldBefore, "use:" + itemId);
-				} else {
-					EntityTaskProgress.record(serverPlayer.getUUID(), "use:" + itemId);
+				// Bows, crossbows, snowballs, eggs, fishing rods and maps are tracked by the vanilla
+				// "item used" stat (see TaskFactory#itemUse), which only rises on an actual use.
+				// Raising a shield and right-clicking a compass have no stat, so record them here.
+				if (item == Items.SHIELD || item == Items.COMPASS) {
+					EntityTaskProgress.record(serverPlayer.getUUID(),
+						EntityTaskProgress.useEvent(BuiltInRegistries.ITEM.getKey(item).getPath()));
 				}
 			}
 			return InteractionResult.PASS;
@@ -346,9 +366,30 @@ public final class MinuteRushMod implements ModInitializer {
 			}
 			if (toolDurabilityDecreased(heldBefore, player.getItemInHand(hand))) {
 				EntityTaskProgress.record(player.getUUID(), event);
-				if ("use:flint_and_steel".equals(event)) {
-					EntityTaskProgress.record(player.getUUID(), "block:use:campfire");
-				}
+			}
+		});
+	}
+
+	/**
+	 * Records the event only if the clicked closed door/trapdoor is actually open after the interaction.
+	 * Placing a door, clicking an iron door by hand, or a cancelled click therefore does not count.
+	 */
+	private static void recordDeferredOpen(ServerPlayer player, net.minecraft.core.BlockPos pos,
+			BlockState before, String event) {
+		player.level().getServer().execute(() -> {
+			BlockState after = player.level().getBlockState(pos);
+			if (game != null && after.is(before.getBlock())
+					&& after.hasProperty(net.minecraft.world.level.block.state.properties.BlockStateProperties.OPEN)
+					&& after.getValue(net.minecraft.world.level.block.state.properties.BlockStateProperties.OPEN)) {
+				EntityTaskProgress.record(player.getUUID(), event);
+			}
+		});
+	}
+
+	private static void recordSuccessfulLeash(ServerPlayer player, Leashable leashable) {
+		player.level().getServer().execute(() -> {
+			if (game != null && leashable.getLeashHolder() == player) {
+				EntityTaskProgress.record(player.getUUID(), "use:lead");
 			}
 		});
 	}
@@ -421,10 +462,6 @@ public final class MinuteRushMod implements ModInitializer {
 		return BuiltInRegistries.ITEM.getKey(item).getPath().endsWith("_hoe");
 	}
 
-	private static boolean isEggItem(Item item) {
-		String id = BuiltInRegistries.ITEM.getKey(item).getPath();
-		return item == Items.EGG || id.endsWith("_egg");
-	}
 
 	private static boolean isFeedItem(Item item, String entityId) {
 		String id = BuiltInRegistries.ITEM.getKey(item).getPath();
