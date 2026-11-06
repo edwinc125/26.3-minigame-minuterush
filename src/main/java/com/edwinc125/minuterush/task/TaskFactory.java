@@ -89,6 +89,28 @@ public final class TaskFactory {
 						stack -> stack.is(entry.item())), entry.rarityWeight(), "hold"));
 			}
 		}
+		for (StoneTaskCatalog.Entry entry : StoneTaskCatalog.entries()) {
+			String id = stoneTaskId(entry);
+			if (entry.mine()) {
+				candidates.add(new Selection(id + ":mine", new DigBlockTask(entry.block()), entry.rarityWeight(), "mine"));
+			}
+			if (entry.place()) {
+				candidates.add(new Selection(id + ":place", new PlaceBlockTask(entry.block()), entry.rarityWeight(), "place"));
+			}
+		}
+	}
+
+	private static void addStoneCraftTasks(List<Selection> candidates) {
+		for (StoneTaskCatalog.Entry entry : StoneTaskCatalog.entries()) {
+			if (entry.craft()) {
+				candidates.add(new Selection(stoneTaskId(entry) + ":craft",
+					new CraftItemTask(entry.item(), entry.make().verb()), entry.rarityWeight(), "crafting"));
+			}
+		}
+	}
+
+	private static String stoneTaskId(StoneTaskCatalog.Entry entry) {
+		return "stone:" + net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(entry.item()).getPath();
 	}
 
 	private static void addLegacyTasks(ServerLevel level, List<Selection> candidates) {
@@ -141,6 +163,7 @@ public final class TaskFactory {
 			craft(candidates, "craft-bed-" + i, Items.BED.asList().get(i), 0.75);
 		}
 		craftWoodVariants(candidates);
+		addStoneCraftTasks(candidates);
 		candidates.add(new Selection("hit-cow", new EntityEventTask("hit:cow", "Hit a cow")));
 		candidates.add(new Selection("hit-player", new EntityEventTask("hit:player", "Hit another player")));
 		candidates.add(new Selection("hit-pig", new EntityEventTask("hit:pig", "Hit a pig")));

@@ -10,15 +10,22 @@ import net.minecraft.world.item.Item;
 
 public final class CraftItemTask implements MinuteRushTask {
 	private final Item item;
+	private final String verb;
 	private final Map<UUID, Integer> baselines = new HashMap<>();
 
 	public CraftItemTask(Item item) {
+		this(item, "Craft");
+	}
+
+	/** {@code verb} is shown to players, e.g. "Smelt" for furnace output (which also counts as crafted). */
+	public CraftItemTask(Item item, String verb) {
 		this.item = item;
+		this.verb = verb;
 	}
 
 	@Override
 	public String description() {
-		return "Craft a " + TaskText.itemName(item).toLowerCase(java.util.Locale.ROOT);
+		return verb + " a " + TaskText.itemName(item).toLowerCase(java.util.Locale.ROOT);
 	}
 
 	@Override
