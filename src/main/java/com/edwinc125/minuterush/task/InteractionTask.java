@@ -9,6 +9,12 @@ import net.minecraft.server.level.ServerPlayer;
 public final class InteractionTask implements MinuteRushTask {
 	public enum Kind { PLAYER, MOB, BLOCK }
 
+	private static final java.util.Set<String> INTERACTABLE_BLOCKS = java.util.Set.of(
+		"crafting_table", "furnace", "blast_furnace", "smoker", "chest", "trapped_chest", "ender_chest",
+		"barrel", "hopper", "dispenser", "dropper", "lever", "cartography_table", "fletching_table",
+		"loom", "smithing_table", "stonecutter", "grindstone", "enchanting_table", "brewing_stand",
+		"bell", "note_block", "crafter", "repeater", "comparator", "daylight_detector");
+
 	private final Kind kind;
 	private final String target;
 	private final int required;
@@ -59,9 +65,25 @@ public final class InteractionTask implements MinuteRushTask {
 			|| (kind == Kind.BLOCK && acceptsBlock(targetId));
 	}
 
+	/** Only "Step on a pressure plate" is completed by walking onto a block; other tasks need a right-click. */
+	public boolean countsStandingOn() {
+		return kind == Kind.BLOCK && "pressure_plate".equals(target);
+	}
+
+	/** Blocks that do something when right-clicked with an empty hand. */
+	public static boolean isInteractableBlock(String block) {
+		if (block.startsWith("iron_")) {
+			return false; // iron doors and trapdoors need redstone
+		}
+		return INTERACTABLE_BLOCKS.contains(block)
+			|| block.endsWith("_bed") || block.endsWith("_door") || block.endsWith("_trapdoor")
+			|| block.endsWith("_button") || block.endsWith("_fence_gate") || block.endsWith("_sign")
+			|| block.endsWith("shulker_box") || block.endsWith("anvil");
+	}
+
 	private boolean acceptsBlock(String targetId) {
 		if ("any-block".equals(target)) {
-			return true;
+			return isInteractableBlock(targetId);
 		}
 		return switch (target) {
 			case "chest" -> "chest".equals(targetId) || "trapped_chest".equals(targetId);

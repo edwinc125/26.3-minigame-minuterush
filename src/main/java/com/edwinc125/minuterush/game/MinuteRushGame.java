@@ -31,11 +31,6 @@ import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 
 public final class MinuteRushGame {
-	private static final Set<String> INTERACTABLE_BLOCKS = Set.of(
-		"crafting_table", "furnace", "blast_furnace", "smoker", "chest", "trapped_chest",
-		"barrel", "hopper", "dispenser", "dropper", "lever", "stone_button", "oak_button",
-		"oak_door", "oak_trapdoor", "oak_fence_gate", "bed", "cartography_table",
-		"fletching_table", "loom", "smithing_table", "stonecutter", "grindstone");
 	private final MinecraftServer server;
 	private MinuteRushConfig config;
 	private final Map<UUID, Integer> scores = new HashMap<>();
@@ -445,9 +440,7 @@ public final class MinuteRushGame {
 	public void blockUsed(ServerPlayer player, net.minecraft.core.BlockPos pos) {
 		if (state == MatchState.ROUND_ACTIVE && task instanceof com.edwinc125.minuterush.task.InteractionTask interaction) {
 			String block = BuiltInRegistries.BLOCK.getKey(player.level().getBlockState(pos).getBlock()).getPath();
-			if (isInteractableBlock(block) || interaction.accepts(block)) {
-				interaction.record(player, block);
-			}
+			interaction.record(player, block);
 		}
 	}
 
@@ -456,6 +449,7 @@ public final class MinuteRushGame {
 		String previous = previousStandingBlocks.put(player.getUUID(), current);
 		if (state == MatchState.ROUND_ACTIVE
 				&& task instanceof com.edwinc125.minuterush.task.InteractionTask interaction
+				&& interaction.countsStandingOn()
 				&& interaction.accepts(current)
 				&& (previous == null || !interaction.accepts(previous))) {
 			interaction.record(player, current);
@@ -464,12 +458,6 @@ public final class MinuteRushGame {
 
 	private static String standingBlock(ServerPlayer player) {
 		return BuiltInRegistries.BLOCK.getKey(player.level().getBlockState(player.getOnPos()).getBlock()).getPath();
-	}
-
-	private static boolean isInteractableBlock(String block) {
-		return INTERACTABLE_BLOCKS.contains(block)
-			|| block.endsWith("_bed") || block.endsWith("_door") || block.endsWith("_trapdoor")
-			|| block.endsWith("_button") || block.endsWith("_fence_gate") || block.endsWith("_sign");
 	}
 
 	public void entityUsed(ServerPlayer player, String target) {
