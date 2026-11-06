@@ -41,6 +41,8 @@ public final class MinuteRushGame {
 	private final Deque<String> recentTaskIds = new ArrayDeque<>();
 	private final Map<UUID, String> previousStandingBlocks = new HashMap<>();
 	private final Random random = new Random();
+	private final SkipVote skipVote = new SkipVote();
+	public static final String VOTE_RECORDED = "Vote recorded.";
 	private final ArenaManager arena;
 	private MatchState state = MatchState.IDLE;
 	private MinuteRushTask task;
@@ -122,6 +124,10 @@ public final class MinuteRushGame {
 				|| state == MatchState.INTERMISSION)
 				&& participants.remove(player.getUUID()) && activePlayers().isEmpty()) {
 			reset("Not enough players remain; match reset.");
+		}
+		skipVote.remove(player.getUUID());
+		if (state == MatchState.ROUND_ACTIVE) {
+			checkSkipVotes();
 		}
 	}
 
@@ -236,6 +242,7 @@ public final class MinuteRushGame {
 		countdownTicks = 0;
 		intermissionTicks = 0;
 		currentTaskId = null;
+		skipVote.clear();
 		participants.clear();
 		scores.replaceAll((id, score) -> 0);
 		server.getPlayerList().broadcastSystemMessage(Component.literal(message), false);
@@ -252,9 +259,46 @@ public final class MinuteRushGame {
 				&& state != MatchState.PRE_GAME_COUNTDOWN && state != MatchState.INTERMISSION) {
 			return "No round is active.";
 		}
-		server.getPlayerList().broadcastSystemMessage(Component.literal("Round skipped by operator."), false);
-		beginIntermission("Round skipped by operator.");
+		skipCurrentRound("Round skipped by operator.");
 		return "Round skipped.";
+	}
+
+	public String voteSkip(ServerPlayer player) {
+		if (state != MatchState.ROUND_ACTIVE) {
+			return "There is no active task to vote on.";
+		}
+		List<UUID> eligible = eligibleVoters();
+		int needed = SkipVote.required(eligible.size());
+		return switch (skipVote.vote(player.getUUID(), eligible)) {
+			case NOT_ELIGIBLE -> "Only players in the current match can vote to skip.";
+			case ALREADY_VOTED -> "You already voted to skip (" + skipVote.count() + "/" + needed + ").";
+			case ACCEPTED -> {
+				server.getPlayerList().broadcastSystemMessage(Component.literal(
+					player.getGameProfile().name() + " voted to skip the task (" + skipVote.count() + "/" + needed + ")."
+						+ " Use /minute-rush voteskip to agree."), false);
+				yield VOTE_RECORDED;
+			}
+			case PASSED -> {
+				skipCurrentRound("Vote passed: task skipped.");
+				yield VOTE_RECORDED;
+			}
+		};
+	}
+
+	private void checkSkipVotes() {
+		if (skipVote.passes(eligibleVoters())) {
+			skipCurrentRound("Vote passed: task skipped.");
+		}
+	}
+
+	private List<UUID> eligibleVoters() {
+		return activePlayers().stream().map(ServerPlayer::getUUID).toList();
+	}
+
+	private void skipCurrentRound(String reason) {
+		skipVote.clear();
+		server.getPlayerList().broadcastSystemMessage(Component.literal(reason), false);
+		beginIntermission(reason);
 	}
 
 	public boolean isCategoryTest(ServerPlayer player) {
@@ -294,6 +338,7 @@ public final class MinuteRushGame {
 			activePlayers().size() > 1);
 		task = selection.task();
 		currentTaskId = selection.id();
+		skipVote.clear();
 		recentTaskIds.addLast(selection.id());
 		while (recentTaskIds.size() > 3) {
 			recentTaskIds.removeFirst();

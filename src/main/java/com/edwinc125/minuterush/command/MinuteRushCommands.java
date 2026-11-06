@@ -24,6 +24,8 @@ public final class MinuteRushCommands {
 				.executes(context -> execute(context.getSource(), gameSupplier, "solo-exit")))
 			.then(Commands.literal("skip")
 				.executes(context -> execute(context.getSource(), gameSupplier, "skip")))
+			.then(Commands.literal("voteskip").requires(source -> true)
+				.executes(context -> voteSkip(context.getSource(), gameSupplier)))
 			.then(Commands.literal("test")
 				.then(Commands.literal("skip")
 					.executes(context -> testSkip(context.getSource(), gameSupplier)))
@@ -106,6 +108,21 @@ public final class MinuteRushCommands {
 			return 0;
 		}
 		source.sendSuccess(() -> Component.literal(message), true);
+		return 1;
+	}
+
+	private static int voteSkip(CommandSourceStack source, Supplier<MinuteRushGame> supplier) {
+		MinuteRushGame game = supplier.get();
+		if (game == null || source.getPlayer() == null) {
+			source.sendFailure(Component.literal("Run this command as a player in a world."));
+			return 0;
+		}
+		String message = game.voteSkip(source.getPlayer());
+		if (!message.equals(MinuteRushGame.VOTE_RECORDED)) {
+			source.sendFailure(Component.literal(message));
+			return 0;
+		}
+		source.sendSuccess(() -> Component.literal(message), false);
 		return 1;
 	}
 
