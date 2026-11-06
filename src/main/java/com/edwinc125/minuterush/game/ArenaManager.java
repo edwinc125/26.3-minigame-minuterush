@@ -217,6 +217,26 @@ public final class ArenaManager {
 		frozenPositions.clear();
 	}
 
+	/**
+	 * A participant reconnected. Reconnecting creates a new ServerPlayer object, so swap out the stale
+	 * one; otherwise placing, freezing and releasing would act on the disconnected object.
+	 */
+	public void rejoinParticipant(ServerPlayer player) {
+		participants.removeIf(existing -> existing.getUUID().equals(player.getUUID()));
+		participants.add(player);
+		if (frozenPositions.containsKey(player.getUUID())) {
+			// Still in the pre-game freeze; they may have been offline when players were placed.
+			resetForMatch(player);
+			player.setGameMode(GameType.SURVIVAL);
+			player.setNoGravity(true);
+			applyFreezeEffects(player);
+		} else {
+			// The freeze may have ended while they were offline; don't leave them floating.
+			player.setNoGravity(false);
+			clearFreezeEffects(player);
+		}
+	}
+
 	public void addSpectator(ServerPlayer player) {
 		originalGameModes.putIfAbsent(player.getUUID(), player.gameMode());
 		spectators.add(player.getUUID());

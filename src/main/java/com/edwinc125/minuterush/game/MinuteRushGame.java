@@ -113,6 +113,10 @@ public final class MinuteRushGame {
 			clearPlayerInteractionGlow();
 		}
 		if (state != MatchState.IDLE && state != MatchState.MATCH_OVER) {
+			if (participants.contains(player.getUUID())) {
+				rejoinMatch(player);
+				return;
+			}
 			arena.addSpectator(player);
 			player.sendSystemMessage(Component.literal("A match is in progress; you are now a spectator."));
 			return;
@@ -120,14 +124,32 @@ public final class MinuteRushGame {
 		player.sendSystemMessage(Component.literal("Minute Rush: use /minute-rush start when everyone is ready."));
 	}
 
+	private boolean isMatchInProgress() {
+		return state == MatchState.ROUND_ACTIVE || state == MatchState.COUNTDOWN
+			|| state == MatchState.PREPARING_ARENA || state == MatchState.PRE_GAME_COUNTDOWN
+			|| state == MatchState.INTERMISSION;
+	}
+
+	/** A player who was in the match when it started reconnected: put them back in, not into spectator. */
+	private void rejoinMatch(ServerPlayer player) {
+		arena.rejoinParticipant(player);
+		if (state == MatchState.ROUND_ACTIVE && task != null) {
+			// Re-sends the prompt and sets their progress baseline. Without it, a task that started while
+			// they were offline would compare lifetime stats (e.g. all jumps ever) and complete instantly.
+			task.begin(player);
+		}
+		player.sendSystemMessage(Component.literal("Welcome back! You have rejoined the match."));
+		ScoreboardDisplay.refresh(server, this);
+	}
+
 	public void playerLeft(ServerPlayer player) {
 		if (isCategoryTest(player)) {
 			clearCategoryTest();
 		}
-		if ((state == MatchState.ROUND_ACTIVE || state == MatchState.COUNTDOWN
-				|| state == MatchState.PREPARING_ARENA || state == MatchState.PRE_GAME_COUNTDOWN
-				|| state == MatchState.INTERMISSION)
-				&& participants.remove(player.getUUID()) && activePlayers().isEmpty()) {
+		// Participants stay in the match while offline so they can rejoin; only reset once nobody is left.
+		// The leaving player may still be in the player list at this point, so exclude them explicitly.
+		if (isMatchInProgress() && participants.contains(player.getUUID())
+				&& activePlayers().stream().allMatch(other -> other.getUUID().equals(player.getUUID()))) {
 			reset("Not enough players remain; match reset.");
 		}
 		skipVote.remove(player.getUUID());
