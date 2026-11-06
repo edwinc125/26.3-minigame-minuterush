@@ -51,6 +51,9 @@ public final class MinuteRushGame {
 	private int ticksRemaining;
 	private int countdownTicks;
 	private int intermissionTicks;
+	/** Seconds players stay in the arena after the match is won, before being sent back to the lobby. */
+	private static final int MATCH_END_DELAY_SECONDS = 5;
+	private int matchOverTicks;
 	private int lastIntermissionSecond = -1;
 	private String currentTaskId;
 	private String intermissionMessage;
@@ -170,6 +173,10 @@ public final class MinuteRushGame {
 		}
 		tickCategoryTest();
 		arena.tickModifiers();
+		if (state == MatchState.MATCH_OVER) {
+			tickMatchOver();
+			return;
+		}
 		if (state == MatchState.PREPARING_ARENA) {
 			arena.tickPreparation();
 			updatePreparationPresentation();
@@ -230,7 +237,10 @@ public final class MinuteRushGame {
 
 	public String start() {
 		clearCategoryTest();
-		if (state != MatchState.IDLE && state != MatchState.MATCH_OVER) {
+		if (state == MatchState.MATCH_OVER) {
+			return "The match is ending; try again once everyone is back in the lobby.";
+		}
+		if (state != MatchState.IDLE) {
 			return "A match is already in progress.";
 		}
 		participants.clear();
@@ -522,7 +532,8 @@ public final class MinuteRushGame {
 			bossbar.addPlayer(player);
 		}
 		bossbar.setVisible(state == MatchState.COUNTDOWN || state == MatchState.PRE_GAME_COUNTDOWN
-			|| state == MatchState.ROUND_ACTIVE || state == MatchState.INTERMISSION);
+			|| state == MatchState.ROUND_ACTIVE || state == MatchState.INTERMISSION
+			|| state == MatchState.MATCH_OVER);
 		if (state == MatchState.ROUND_ACTIVE && ticksRemaining > 0) {
 			bossbar.setName(Component.literal(task.description() + "  |  " + timeScore() + "s")
 				.withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD));
@@ -538,8 +549,23 @@ public final class MinuteRushGame {
 				.withStyle(ChatFormatting.YELLOW, ChatFormatting.BOLD));
 			bossbar.setProgress(Math.max(0.0f, Math.min(1.0f,
 				intermissionTicks / (float) (config.interRoundBreakSeconds() * 20))));
+		} else if (state == MatchState.MATCH_OVER) {
+			bossbar.setName(Component.literal("Returning to lobby in " + Math.max(1, (matchOverTicks + 19) / 20) + "s")
+				.withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD));
+			bossbar.setProgress(Math.max(0.0f, Math.min(1.0f,
+				matchOverTicks / (float) (MATCH_END_DELAY_SECONDS * 20))));
 		}
 		ScoreboardDisplay.refresh(server, this);
+	}
+
+	private void tickMatchOver() {
+		if (--matchOverTicks > 0) {
+			updatePresentation();
+			return;
+		}
+		arena.restoreLobbyState();
+		cleanupPending = arena.cleanupActive();
+		state = MatchState.IDLE;
 	}
 
 	private void winRound(ServerPlayer winner) {
@@ -552,14 +578,15 @@ public final class MinuteRushGame {
 		playSound(SoundEvents.PLAYER_LEVELUP, 1.0f, 1.0f);
 		ScoreboardDisplay.refresh(server, this);
 		if (newScore >= config.targetScore()) {
+			// Stay in the arena for a few seconds before returning everyone to the lobby (see tickMatchOver).
 			state = MatchState.MATCH_OVER;
+			matchOverTicks = MATCH_END_DELAY_SECONDS * 20;
+			task = null;
 			playSound(SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
-			bossbar.setVisible(false);
-			server.getPlayerList().broadcastSystemMessage(Component.literal(winner.getGameProfile().name() + " wins the match! Use /minute-rush start to play again."), false);
+			title(winnerName + " wins the match!", "Returning to lobby in " + MATCH_END_DELAY_SECONDS + "s");
+			server.getPlayerList().broadcastSystemMessage(Component.literal(winnerName + " wins the match! Use /minute-rush start to play again."), false);
 			clearPlayerInteractionGlow();
-			arena.restoreLobbyState();
-			cleanupPending = arena.cleanupActive();
-			state = MatchState.IDLE;
+			updatePresentation();
 		} else {
 			beginIntermission(winnerName + " wins the round!");
 		}
