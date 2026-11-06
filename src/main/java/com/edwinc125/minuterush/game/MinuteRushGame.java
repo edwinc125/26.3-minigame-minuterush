@@ -83,6 +83,10 @@ public final class MinuteRushGame {
 		return state;
 	}
 
+	public boolean isParticipant(ServerPlayer player) {
+		return participants.contains(player.getUUID());
+	}
+
 	public int score(UUID playerId) {
 		return scores.getOrDefault(playerId, 0);
 	}
@@ -495,7 +499,8 @@ public final class MinuteRushGame {
 	}
 
 	private void updatePresentation() {
-		for (ServerPlayer player : activePlayers()) {
+		// Everyone online sees the bossbar, including spectators who are not on the scoreboard.
+		for (ServerPlayer player : server.getPlayerList().getPlayers()) {
 			bossbar.addPlayer(player);
 		}
 		bossbar.setVisible(state == MatchState.COUNTDOWN || state == MatchState.PRE_GAME_COUNTDOWN
@@ -569,7 +574,8 @@ public final class MinuteRushGame {
 	}
 
 	private void updatePreparationPresentation() {
-		for (ServerPlayer player : activePlayers()) {
+		// Everyone online sees the bossbar, including spectators who are not on the scoreboard.
+		for (ServerPlayer player : server.getPlayerList().getPlayers()) {
 			bossbar.addPlayer(player);
 		}
 		bossbar.setVisible(true);
