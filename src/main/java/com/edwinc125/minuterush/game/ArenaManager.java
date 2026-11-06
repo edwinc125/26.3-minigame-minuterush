@@ -154,6 +154,12 @@ public final class ArenaManager {
 				LevelData.RespawnData.of(level.dimension(), position, 0.0f, 0.0f), true), true);
 			player.setGameMode(GameType.SURVIVAL);
 		}
+		for (UUID spectatorId : spectators) {
+			ServerPlayer spectator = server.getPlayerList().getPlayer(spectatorId);
+			if (spectator != null) {
+				sendSpectatorToArena(spectator);
+			}
+		}
 		// 26.x uses world clocks with time markers, so let the vanilla command move the overworld clock.
 		server.getCommands().performPrefixedCommand(
 			server.createCommandSourceStack().withSuppressedOutput(), "time set day");
@@ -215,6 +221,17 @@ public final class ArenaManager {
 		originalGameModes.putIfAbsent(player.getUUID(), player.gameMode());
 		spectators.add(player.getUUID());
 		player.setGameMode(GameType.SPECTATOR);
+		if (ready) {
+			sendSpectatorToArena(player);
+		}
+		// Otherwise the arena is still generating; placeParticipants moves spectators once it is ready.
+	}
+
+	private void sendSpectatorToArena(ServerPlayer player) {
+		BlockPos spawn = preparedPositions.isEmpty() ? new BlockPos(centerX, 80, centerZ) : preparedPositions.get(0);
+		// Cross-dimension teleport, in case the spectator logged in elsewhere (e.g. the Nether).
+		player.teleportTo(server.overworld(), spawn.getX() + 0.5, spawn.getY() + 2, spawn.getZ() + 0.5,
+			Set.of(), player.getYRot(), player.getXRot(), true);
 	}
 
 	public boolean isSpectator(ServerPlayer player) {
