@@ -34,7 +34,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.CropBlock;
 import net.minecraft.world.level.material.Fluids;
-import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
+import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.minecraft.resources.Identifier;
 import java.util.HashMap;
 import java.util.Map;
@@ -206,14 +206,14 @@ public final class MinuteRushMod implements ModInitializer {
 					"kill:" + BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).getPath());
 			}
 		});
-		AttackBlockCallback.EVENT.register((player, world, hand, pos, direction) -> {
-			if (!world.isClientSide() && player instanceof ServerPlayer serverPlayer && serverPlayer.isCrouching()) {
-				EntityTaskProgress.record(serverPlayer.getUUID(), "block:break:crouch");
-			}
+		// Break tasks count only once the block is actually broken, not when the player starts hitting it.
+		PlayerBlockBreakEvents.AFTER.register((world, player, pos, state, blockEntity) -> {
 			if (!world.isClientSide() && player instanceof ServerPlayer serverPlayer) {
-				recordBlockBreak(serverPlayer, blockId(serverPlayer, pos));
+				if (serverPlayer.isCrouching()) {
+					EntityTaskProgress.record(serverPlayer.getUUID(), "block:break:crouch");
+				}
+				recordBlockBreak(serverPlayer, state);
 			}
-			return InteractionResult.PASS;
 		});
 		UseItemCallback.EVENT.register((player, world, hand) -> {
 			if (!world.isClientSide() && player instanceof ServerPlayer serverPlayer) {
@@ -438,7 +438,8 @@ public final class MinuteRushMod implements ModInitializer {
 		return BuiltInRegistries.BLOCK.getKey(state.getBlock()).getPath();
 	}
 
-	private static void recordBlockBreak(ServerPlayer player, String block) {
+	private static void recordBlockBreak(ServerPlayer player, BlockState state) {
+		String block = BuiltInRegistries.BLOCK.getKey(state.getBlock()).getPath();
 		EntityTaskProgress.record(player.getUUID(), "block:break:" + block);
 		if (block.endsWith("_leaves")) {
 			EntityTaskProgress.record(player.getUUID(), "block:break:leaves");
@@ -449,11 +450,11 @@ public final class MinuteRushMod implements ModInitializer {
 		if (block.endsWith("_bed")) {
 			EntityTaskProgress.record(player.getUUID(), "block:break:bed");
 		}
-		if ("torch".equals(block)) {
+		if ("torch".equals(block) || "wall_torch".equals(block)) {
 			EntityTaskProgress.record(player.getUUID(), "block:break:torch");
 		}
-		if (block.endsWith("_crop") || "wheat".equals(block) || "carrots".equals(block)
-				|| "potatoes".equals(block) || "beetroots".equals(block)) {
+		if (state.getBlock() instanceof CropBlock crop && crop.isMaxAge(state)) {
+			// Only fully grown crops count as a harvest.
 			EntityTaskProgress.record(player.getUUID(), "block:break:crop");
 		}
 	}
