@@ -24,8 +24,6 @@ public final class MinuteRushCommands {
 				.executes(context -> execute(context.getSource(), gameSupplier, "solo-exit")))
 			.then(Commands.literal("skip")
 				.executes(context -> execute(context.getSource(), gameSupplier, "skip")))
-			.then(Commands.literal("voteskip").requires(source -> true)
-				.executes(context -> voteSkip(context.getSource(), gameSupplier)))
 			.then(Commands.literal("test")
 				.then(Commands.literal("skip")
 					.executes(context -> testSkip(context.getSource(), gameSupplier)))
@@ -46,6 +44,8 @@ public final class MinuteRushCommands {
 							IntegerArgumentType.getInteger(context, "seconds"))))))
 			.then(Commands.literal("status").requires(source -> true)
 				.executes(context -> status(context.getSource(), gameSupplier))));
+		dispatcher.register(Commands.literal("voteskip")
+			.executes(context -> voteSkip(context.getSource(), gameSupplier)));
 	}
 
 	private static int configure(CommandSourceStack source, Supplier<MinuteRushGame> supplier, String setting, int value) {

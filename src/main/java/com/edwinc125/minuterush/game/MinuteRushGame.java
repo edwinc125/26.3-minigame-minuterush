@@ -11,7 +11,9 @@ import java.util.UUID;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Set;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.ChatFormatting;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -274,8 +276,8 @@ public final class MinuteRushGame {
 			case ALREADY_VOTED -> "You already voted to skip (" + skipVote.count() + "/" + needed + ").";
 			case ACCEPTED -> {
 				server.getPlayerList().broadcastSystemMessage(Component.literal(
-					player.getGameProfile().name() + " voted to skip the task (" + skipVote.count() + "/" + needed + ")."
-						+ " Use /minute-rush voteskip to agree."), false);
+					player.getGameProfile().name() + " voted to skip the task (" + skipVote.count() + "/" + needed + "). ")
+						.append(voteSkipButton()), false);
 				yield VOTE_RECORDED;
 			}
 			case PASSED -> {
@@ -283,6 +285,13 @@ public final class MinuteRushGame {
 				yield VOTE_RECORDED;
 			}
 		};
+	}
+
+	private static Component voteSkipButton() {
+		return Component.literal("[Vote to skip]").withStyle(style -> style
+			.withColor(ChatFormatting.YELLOW)
+			.withClickEvent(new ClickEvent.RunCommand("/voteskip"))
+			.withHoverEvent(new HoverEvent.ShowText(Component.literal("Click to vote to skip this task"))));
 	}
 
 	private void checkSkipVotes() {
@@ -345,7 +354,8 @@ public final class MinuteRushGame {
 		}
 
 		ticksRemaining = config.roundDurationSeconds() * 20;
-		server.getPlayerList().broadcastSystemMessage(Component.literal("New round: " + task.description()), false);
+		server.getPlayerList().broadcastSystemMessage(Component.literal("New round: " + task.description() + " ")
+			.append(voteSkipButton()), false);
 		title("NEW TASK", task.description());
 		playSound(SoundEvents.NOTE_BLOCK_PLING.value(), 1.0f, 1.2f);
 		for (ServerPlayer player : activePlayers()) task.begin(player);
