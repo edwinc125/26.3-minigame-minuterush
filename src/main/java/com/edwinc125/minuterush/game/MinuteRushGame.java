@@ -223,15 +223,19 @@ public final class MinuteRushGame {
 		arena.expandBorder(config);
 		updatePlayerInteractionGlow();
 		updatePresentation();
+		// Check everyone before awarding, so all players who finish on the same tick get a point.
+		List<ServerPlayer> winners = new java.util.ArrayList<>();
 		for (ServerPlayer player : activePlayers()) {
 			trackStandingBlock(player);
 			if (player.fishing != null && player.fishing.getHookedIn() instanceof ServerPlayer hooked && hooked != player) {
 				com.edwinc125.minuterush.task.EntityTaskProgress.record(player.getUUID(), "hook:player");
 			}
 			if (task.isComplete(player)) {
-				winRound(player);
-				return;
+				winners.add(player);
 			}
+		}
+		if (!winners.isEmpty()) {
+			winRound(winners);
 		}
 	}
 
@@ -568,27 +572,43 @@ public final class MinuteRushGame {
 		state = MatchState.IDLE;
 	}
 
-	private void winRound(ServerPlayer winner) {
-		int newScore = score(winner.getUUID()) + 1;
-		scores.put(winner.getUUID(), newScore);
-		String winnerName = winner.getGameProfile().name();
-		server.getPlayerList().broadcastSystemMessage(Component.literal(winnerName + " wins the round! (" + newScore + "/" + config.targetScore() + ")"), false);
-		title(winnerName + " wins!", "Round score: " + newScore + "/" + config.targetScore());
+	/** Awards a point to every player who completed the task this tick. */
+	private void winRound(List<ServerPlayer> winners) {
+		List<String> names = new java.util.ArrayList<>();
+		List<String> scoreParts = new java.util.ArrayList<>();
+		List<String> matchWinners = new java.util.ArrayList<>();
+		for (ServerPlayer winner : winners) {
+			int newScore = score(winner.getUUID()) + 1;
+			scores.put(winner.getUUID(), newScore);
+			String name = winner.getGameProfile().name();
+			names.add(name);
+			scoreParts.add(winners.size() == 1 ? newScore + "/" + config.targetScore()
+				: name + " " + newScore + "/" + config.targetScore());
+			if (newScore >= config.targetScore()) {
+				matchWinners.add(name);
+			}
+		}
+		String who = WinnerNames.join(names) + " " + WinnerNames.verb(names);
+		server.getPlayerList().broadcastSystemMessage(Component.literal(
+			who + " the round! (" + String.join(", ", scoreParts) + ")"), false);
+		title(who + "!", winners.size() == 1 ? "Round score: " + scoreParts.get(0) : "+1 point each");
 		playSound(SoundEvents.EXPERIENCE_ORB_PICKUP, 1.0f, 1.4f);
 		playSound(SoundEvents.PLAYER_LEVELUP, 1.0f, 1.0f);
 		ScoreboardDisplay.refresh(server, this);
-		if (newScore >= config.targetScore()) {
+		if (!matchWinners.isEmpty()) {
 			// Stay in the arena for a few seconds before returning everyone to the lobby (see tickMatchOver).
+			String matchWho = WinnerNames.join(matchWinners) + " " + WinnerNames.verb(matchWinners);
 			state = MatchState.MATCH_OVER;
 			matchOverTicks = MATCH_END_DELAY_SECONDS * 20;
 			task = null;
 			playSound(SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
-			title(winnerName + " wins the match!", "Returning to lobby in " + MATCH_END_DELAY_SECONDS + "s");
-			server.getPlayerList().broadcastSystemMessage(Component.literal(winnerName + " wins the match! Use /minute-rush start to play again."), false);
+			title(matchWho + " the match!", "Returning to lobby in " + MATCH_END_DELAY_SECONDS + "s");
+			server.getPlayerList().broadcastSystemMessage(Component.literal(
+				matchWho + " the match! Use /minute-rush start to play again."), false);
 			clearPlayerInteractionGlow();
 			updatePresentation();
 		} else {
-			beginIntermission(winnerName + " wins the round!");
+			beginIntermission(who + " the round!");
 		}
 	}
 
