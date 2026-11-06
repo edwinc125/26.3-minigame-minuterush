@@ -321,10 +321,10 @@ public final class MinuteRushMod implements ModInitializer {
 		}
 	}
 
+	/** Plantable items that are also food; planting them is detected by the crop appearing. */
 	private static boolean isSeed(Item item) {
-		String id = BuiltInRegistries.ITEM.getKey(item).getPath();
-		return id.endsWith("_seeds") || "wheat".equals(id) || "carrots".equals(id)
-				|| "potatoes".equals(id) || "beetroot_seeds".equals(id);
+		// Item ids are "carrot"/"potato"; "carrots"/"potatoes" are the block ids and never matched.
+		return item == Items.CARROT || item == Items.POTATO;
 	}
 
 	private static boolean isBucket(Item item) {

@@ -256,7 +256,10 @@ public final class TaskFactory {
 		event(candidates, "place-sign", "block:place:sign", "Place a sign");
 		event(candidates, "place-banner", "block:place:banner", "Place a banner");
 		event(candidates, "place-flower-pot", "block:place:flower-pot", "Place a flower pot");
-		event(candidates, "plant-seed", "block:place:seed", "Plant a seed");
+		// Seeds only have one use (planting), so their "item used" stat counts plantings. Carrots and potatoes
+		// can also be eaten, which raises the same stat, so those are detected by MinuteRushMod instead.
+		itemUse(candidates, "plant-seed", "Plant a seed", "block:place:seed", Items.WHEAT_SEEDS,
+			Items.BEETROOT_SEEDS, Items.MELON_SEEDS, Items.PUMPKIN_SEEDS, Items.TORCHFLOWER_SEEDS, Items.PITCHER_POD);
 		event(candidates, "harvest-crop", "block:break:crop", "Harvest a crop");
 		event(candidates, "ring-bell", "block:use:bell", "Ring a bell");
 		event(candidates, "press-button-use", "block:use:button", "Press a button");
