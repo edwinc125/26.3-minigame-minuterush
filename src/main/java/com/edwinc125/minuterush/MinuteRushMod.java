@@ -191,6 +191,14 @@ public final class MinuteRushMod implements ModInitializer {
 				if (blocked) {
 					EntityTaskProgress.record(player.getUUID(), "combat:shield-block");
 				}
+				// Melee (including spear) damage dealt by another player, by weapon type.
+				if (source.getEntity() instanceof ServerPlayer attacker && attacker != player
+						&& source.getDirectEntity() == attacker && damageTaken > 0) {
+					String tool = weaponType(source.getWeaponItem());
+					if (tool != null) {
+						EntityTaskProgress.record(attacker.getUUID(), "hit:player:" + tool);
+					}
+				}
 			}
 		});
 		ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
@@ -457,6 +465,19 @@ public final class MinuteRushMod implements ModInitializer {
 			// Only fully grown crops count as a harvest.
 			EntityTaskProgress.record(player.getUUID(), "block:break:crop");
 		}
+	}
+
+	private static String weaponType(ItemStack weapon) {
+		if (weapon == null || weapon.isEmpty()) {
+			return null;
+		}
+		if (weapon.is(net.minecraft.tags.ItemTags.SWORDS)) return "sword";
+		if (weapon.is(net.minecraft.tags.ItemTags.AXES)) return "axe";
+		if (weapon.is(net.minecraft.tags.ItemTags.SHOVELS)) return "shovel";
+		if (weapon.is(net.minecraft.tags.ItemTags.PICKAXES)) return "pickaxe";
+		if (weapon.is(net.minecraft.tags.ItemTags.HOES)) return "hoe";
+		if (weapon.is(net.minecraft.tags.ItemTags.SPEARS)) return "spear";
+		return null;
 	}
 
 	private static boolean isHoe(Item item) {

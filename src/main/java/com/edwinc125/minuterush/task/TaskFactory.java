@@ -26,7 +26,7 @@ public final class TaskFactory {
 		addBasicTasks(level, candidates);
 		addLegacyTasks(level, candidates);
 		if (!allowPlayerInteraction) {
-			candidates.removeIf(selection -> selection.id().equals("interact-player"));
+			candidates.removeIf(selection -> isPlayerTask(selection.id()));
 		}
 		List<Selection> available = candidates.stream()
 			.filter(selection -> !recent.contains(selection.id()))
@@ -35,6 +35,14 @@ public final class TaskFactory {
 			available = candidates;
 		}
 		return TaskSelection.chooseWeighted(random, available);
+	}
+
+	/**
+	 * Tasks that need another player (hit, kill, interact, hit with a tool, hook). They turn on glowing and
+	 * keepInventory for the round, and are skipped when only one player is in the match.
+	 */
+	public static boolean isPlayerTask(String id) {
+		return id != null && id.contains("-player");
 	}
 
 	public static List<Selection> category(ServerLevel level, String category) {
@@ -166,6 +174,15 @@ public final class TaskFactory {
 		addStoneCraftTasks(candidates);
 		candidates.add(new Selection("hit-cow", new EntityEventTask("hit:cow", "Hit a cow")));
 		candidates.add(new Selection("hit-player", new EntityEventTask("hit:player", "Hit another player")));
+		// Lower weight so the seven variants together don't crowd out other tasks.
+		playerToolHit(candidates, "sword", "Hit another player with a sword");
+		playerToolHit(candidates, "axe", "Hit another player with an axe");
+		playerToolHit(candidates, "shovel", "Hit another player with a shovel");
+		playerToolHit(candidates, "pickaxe", "Hit another player with a pickaxe");
+		playerToolHit(candidates, "hoe", "Hit another player with a hoe");
+		playerToolHit(candidates, "spear", "Hit another player with a spear");
+		candidates.add(new Selection("hit-player-fishing-rod",
+			new EntityEventTask("hook:player", "Hook another player with a fishing rod"), 0.4, "interactive"));
 		candidates.add(new Selection("hit-pig", new EntityEventTask("hit:pig", "Hit a pig")));
 		candidates.add(new Selection("hit-sheep", new EntityEventTask("hit:sheep", "Hit a sheep")));
 		candidates.add(new Selection("hit-chicken", new EntityEventTask("hit:chicken", "Hit a chicken")));
@@ -381,6 +398,11 @@ public final class TaskFactory {
 		candidates.add(new Selection("reach-y-20", new YLevelTask(false, 20), 0.5, "movement"));
 		candidates.add(new Selection("reach-y-0", new YLevelTask(false, 0), 0.25, "movement"));
 		candidates.add(new Selection("fall-water", new WaterLandingTask(), 0.75, "movement"));
+	}
+
+	private static void playerToolHit(List<Selection> candidates, String tool, String prompt) {
+		candidates.add(new Selection("hit-player-" + tool,
+			new EntityEventTask("hit:player:" + tool, prompt), 0.4, "interactive"));
 	}
 
 	private static void event(List<Selection> candidates, String id, String key, String prompt) {

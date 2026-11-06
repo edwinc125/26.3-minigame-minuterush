@@ -27,8 +27,6 @@ import net.minecraft.network.protocol.game.ClientboundSetSubtitleTextPacket;
 import net.minecraft.network.protocol.game.ClientboundSetTitleTextPacket;
 import net.minecraft.network.protocol.game.ClientboundSetTitlesAnimationPacket;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.world.effect.MobEffectInstance;
-import net.minecraft.world.effect.MobEffects;
 
 public final class MinuteRushGame {
 	private final MinecraftServer server;
@@ -39,6 +37,8 @@ public final class MinuteRushGame {
 	private final Map<UUID, String> previousStandingBlocks = new HashMap<>();
 	private final Random random = new Random();
 	private final SkipVote skipVote = new SkipVote();
+	/** Players whose glowing tag was turned on by a player task, so only those are turned off again. */
+	private final Set<UUID> glowTagged = new java.util.HashSet<>();
 	public static final String VOTE_RECORDED = "Vote recorded.";
 	private final ArenaManager arena;
 	private MatchState state = MatchState.IDLE;
@@ -108,6 +108,10 @@ public final class MinuteRushGame {
 
 	public void playerJoined(ServerPlayer player) {
 		scores.putIfAbsent(player.getUUID(), 0);
+		if (!com.edwinc125.minuterush.task.TaskFactory.isPlayerTask(currentTaskId) || state != MatchState.ROUND_ACTIVE) {
+			// They logged out while glowing from a player task that has since ended.
+			clearPlayerInteractionGlow();
+		}
 		if (state != MatchState.IDLE && state != MatchState.MATCH_OVER) {
 			arena.addSpectator(player);
 			player.sendSystemMessage(Component.literal("A match is in progress; you are now a spectator."));
@@ -192,6 +196,9 @@ public final class MinuteRushGame {
 		updatePresentation();
 		for (ServerPlayer player : activePlayers()) {
 			trackStandingBlock(player);
+			if (player.fishing != null && player.fishing.getHookedIn() instanceof ServerPlayer hooked && hooked != player) {
+				com.edwinc125.minuterush.task.EntityTaskProgress.record(player.getUUID(), "hook:player");
+			}
 			if (task.isComplete(player)) {
 				winRound(player);
 				return;
@@ -234,6 +241,7 @@ public final class MinuteRushGame {
 
 	public String reset(String message) {
 		clearCategoryTest();
+		clearPlayerInteractionGlow();
 		arena.restoreLobbyState();
 		cleanupPending = arena.cleanupActive();
 		state = MatchState.IDLE;
@@ -526,6 +534,7 @@ public final class MinuteRushGame {
 			playSound(SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
 			bossbar.setVisible(false);
 			server.getPlayerList().broadcastSystemMessage(Component.literal(winner.getGameProfile().name() + " wins the match! Use /minute-rush start to play again."), false);
+			clearPlayerInteractionGlow();
 			arena.restoreLobbyState();
 			cleanupPending = arena.cleanupActive();
 			state = MatchState.IDLE;
@@ -545,20 +554,40 @@ public final class MinuteRushGame {
 			|| currentTaskId.endsWith("-damage") || currentTaskId.equals("fall-damage"));
 	}
 
+	/**
+	 * During any task that involves another player, everyone glows so they can find each other, and
+	 * keepInventory stays on (until the grace period after the round) so PvP deaths don't cost items.
+	 */
 	private void updatePlayerInteractionGlow() {
-		if (!"interact-player".equals(currentTaskId)) {
+		if (!com.edwinc125.minuterush.task.TaskFactory.isPlayerTask(currentTaskId)) {
 			clearPlayerInteractionGlow();
 			return;
 		}
+		arena.enableKeepInventory(config.keepInventoryGraceSeconds());
 		for (ServerPlayer player : activePlayers()) {
-			player.addEffect(new MobEffectInstance(MobEffects.GLOWING, 40, 0, false, false));
+			// Use the glowing tag, not the Glowing effect, so the player's own effects (e.g. a glowing
+			// potion or spectral arrow) are never overwritten or removed. Players who already had the
+			// tag from elsewhere are left alone and not tracked.
+			if (!player.hasGlowingTag()) {
+				player.setGlowingTag(true);
+				glowTagged.add(player.getUUID());
+			}
 		}
 	}
 
+	/** Removes only the glowing tag this game set; players who are offline are cleared when they rejoin. */
 	private void clearPlayerInteractionGlow() {
-		for (ServerPlayer player : activePlayers()) {
-			player.removeEffect(MobEffects.GLOWING);
+		if (glowTagged.isEmpty()) {
+			return;
 		}
+		glowTagged.removeIf(id -> {
+			ServerPlayer player = server.getPlayerList().getPlayer(id);
+			if (player == null) {
+				return false;
+			}
+			player.setGlowingTag(false);
+			return true;
+		});
 	}
 
 	private void updatePreparationPresentation() {
