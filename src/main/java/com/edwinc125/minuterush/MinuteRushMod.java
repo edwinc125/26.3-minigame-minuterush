@@ -21,6 +21,7 @@ import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.item.Items;
 import com.edwinc125.minuterush.task.EntityTaskProgress;
+import com.edwinc125.minuterush.task.OffhandSwapProgress;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -42,8 +43,7 @@ public final class MinuteRushMod implements ModInitializer {
 	public static final String MOD_ID = "minute_rush";
 	private static MinuteRushGame game;
 	private static final Map<UUID, Boolean> PASSENGER_STATE = new HashMap<>();
-	private static final Map<UUID, String> MAIN_HAND_STATE = new HashMap<>();
-	private static final Map<UUID, String> OFF_HAND_STATE = new HashMap<>();
+	private static final Map<UUID, OffhandSwapProgress> OFFHAND_SWAP_STATE = new HashMap<>();
 
 	@Override
 	public void onInitialize() {
@@ -252,9 +252,8 @@ public final class MinuteRushMod implements ModInitializer {
 		DROP_STATE.put(player.getUUID(), drops);
 		String main = BuiltInRegistries.ITEM.getKey(player.getMainHandItem().getItem()).getPath();
 		String off = BuiltInRegistries.ITEM.getKey(player.getOffhandItem().getItem()).getPath();
-		String previousMain = MAIN_HAND_STATE.put(player.getUUID(), main);
-		String previousOff = OFF_HAND_STATE.put(player.getUUID(), off);
-		if (previousMain != null && previousOff != null && previousMain.equals(off) && previousOff.equals(main)) {
+		OffhandSwapProgress swap = OFFHAND_SWAP_STATE.computeIfAbsent(player.getUUID(), id -> new OffhandSwapProgress());
+		if (swap.update(main, off, player.getInventory().getSelectedSlot())) {
 			EntityTaskProgress.record(player.getUUID(), "inventory:swap-offhand");
 		}
 	}
