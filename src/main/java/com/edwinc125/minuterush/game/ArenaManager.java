@@ -148,11 +148,29 @@ public final class ArenaManager {
 				position = new BlockPos(centerX, 80, centerZ);
 			}
 			frozenPositions.put(player.getUUID(), position);
+			resetForMatch(player);
 			player.teleportTo(position.getX() + 0.5, position.getY(), position.getZ() + 0.5);
 			player.setRespawnPosition(new RespawnConfig(
 				LevelData.RespawnData.of(level.dimension(), position, 0.0f, 0.0f), true), true);
 			player.setGameMode(GameType.SURVIVAL);
 		}
+		// 26.x uses world clocks with time markers, so let the vanilla command move the overworld clock.
+		server.getCommands().performPrefixedCommand(
+			server.createCommandSourceStack().withSuppressedOutput(), "time set day");
+	}
+
+	/** Gives every participant the same start: empty inventory, full health and hunger, no effects. */
+	private static void resetForMatch(ServerPlayer player) {
+		player.getInventory().clearContent();
+		player.inventoryMenu.getCraftSlots().clearContent();
+		player.containerMenu.setCarried(net.minecraft.world.item.ItemStack.EMPTY);
+		player.removeAllEffects();
+		player.setHealth(player.getMaxHealth());
+		player.getFoodData().setFoodLevel(20);
+		player.getFoodData().setSaturation(5.0f);
+		player.clearFire();
+		player.setAirSupply(player.getMaxAirSupply());
+		player.resetFallDistance();
 	}
 
 	public void expandBorder(MinuteRushConfig config) {
