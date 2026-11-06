@@ -22,12 +22,19 @@ public final class TaskFactory {
 	}
 
 	public static Selection next(ServerLevel level, Random random, Set<String> recent, boolean allowPlayerInteraction) {
+		return next(level, random, recent, allowPlayerInteraction, id -> true);
+	}
+
+	/** @param possible whether a task can be done in the current arena (see TaskRequirements) */
+	public static Selection next(ServerLevel level, Random random, Set<String> recent, boolean allowPlayerInteraction,
+			java.util.function.Predicate<String> possible) {
 		List<Selection> candidates = new ArrayList<>();
 		addBasicTasks(level, candidates);
 		addLegacyTasks(level, candidates);
 		if (!allowPlayerInteraction) {
 			candidates.removeIf(selection -> isPlayerTask(selection.id()));
 		}
+		candidates.removeIf(selection -> !possible.test(selection.id()));
 		List<Selection> available = candidates.stream()
 			.filter(selection -> !recent.contains(selection.id()))
 			.toList();
@@ -167,8 +174,9 @@ public final class TaskFactory {
 		craft(candidates, "craft-iron-trapdoor", Items.IRON_TRAPDOOR, 0.75);
 		craft(candidates, "craft-iron-bars", Items.IRON_BARS, 0.75);
 		craft(candidates, "craft-minecart", Items.MINECART, 0.75);
-		for (int i = 0; i < Items.BED.asList().size(); i++) {
-			craft(candidates, "craft-bed-" + i, Items.BED.asList().get(i), 0.75);
+		// Ids by colour (e.g. "craft-bed-light_blue") so TaskRequirements can require each dye's biome.
+		for (net.minecraft.world.item.DyeColor color : net.minecraft.world.item.DyeColor.values()) {
+			craft(candidates, "craft-bed-" + color.getName(), Items.BED.pick(color), 0.75);
 		}
 		craftWoodVariants(candidates);
 		addStoneCraftTasks(candidates);

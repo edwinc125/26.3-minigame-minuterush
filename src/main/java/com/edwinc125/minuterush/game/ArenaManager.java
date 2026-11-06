@@ -1,6 +1,19 @@
 package com.edwinc125.minuterush.game;
 
 import com.edwinc125.minuterush.config.MinuteRushConfig;
+import com.edwinc125.minuterush.task.TaskRequirements;
+import net.minecraft.core.Holder;
+import net.minecraft.core.QuartPos;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.chunk.ChunkGeneratorStructureState;
+import net.minecraft.world.level.levelgen.structure.StructureSet;
+import net.minecraft.world.level.levelgen.structure.placement.RandomSpreadStructurePlacement;
+import net.minecraft.tags.StructureTags;
+import net.minecraft.util.Util;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.biome.BiomeSource;
+import net.minecraft.world.level.biome.BiomeResolver;
+import net.minecraft.world.level.levelgen.RandomState;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -59,6 +72,10 @@ public final class ArenaManager {
 	private int cleanupDelayTicks;
 	private boolean cleanupTeleported;
 	private final List<ServerPlayer> cleanupPlayers = new ArrayList<>();
+	/** Biome sample spacing in blocks; 16 gives ~4000 samples for a 1000-block border. */
+	private static final int SURVEY_STEP = 16;
+	private volatile ArenaSurvey<Holder<Biome>> survey;
+	private int surveyRadius = 500;
 
 	public ArenaManager(MinecraftServer server) {
 		this.server = server;
@@ -82,6 +99,7 @@ public final class ArenaManager {
 
 	public void beginPreparation(List<ServerPlayer> players, MinuteRushConfig config) {
 		resetPreparation();
+		surveyRadius = config.maxBorderSize() / 2;
 		participants.addAll(players);
 		ServerLevel level = server.overworld();
 		BlockPos spawn = chooseArenaCenter(level);
@@ -128,6 +146,111 @@ public final class ArenaManager {
 			preparing = false;
 			ready = true;
 		}
+	}
+
+	/**
+	 * Surveys the largest border the arena can reach, entirely off the server thread: samples surface biomes
+	 * every SURVEY_STEP blocks, then predicts villages from their placement rules. Both only evaluate seed-based
+	 * worldgen math (the same the worldgen worker threads run), so no chunks are generated or loaded.
+	 */
+	private void startSurvey(ServerLevel level) {
+		ArenaSurvey<Holder<Biome>> next = new ArenaSurvey<>();
+		survey = next;
+		int cx = centerX;
+		int cz = centerZ;
+		int radius = surveyRadius;
+		BiomeSource source = level.getChunkSource().getGenerator().getBiomeSource();
+		RandomState randomState = level.getChunkSource().randomState();
+		ChunkGeneratorStructureState structureState = level.getChunkSource().getGeneratorState();
+		// Resolve tags on the server thread; the worker only reads the resulting list.
+		List<StructureSet> villageSets = structureState.possibleStructureSets().stream()
+			.map(Holder::value)
+			.filter(set -> set.structures().stream().anyMatch(entry -> entry.structure().is(StructureTags.VILLAGE)))
+			.toList();
+		// High above the terrain, so the sampled biome is the surface biome rather than a cave biome.
+		int quartY = QuartPos.fromBlock(256);
+		CompletableFuture.runAsync(() -> {
+			// Created on the worker thread: an uncached resolver is not shared with world generation.
+			BiomeResolver resolver = source.createUncachedResolver(randomState);
+			for (int dx = -radius; dx <= radius; dx += SURVEY_STEP) {
+				for (int dz = -radius; dz <= radius; dz += SURVEY_STEP) {
+					Holder<Biome> biome = resolver.getNoiseBiome(
+						QuartPos.fromBlock(cx + dx), quartY, QuartPos.fromBlock(cz + dz));
+					next.addBiomeSample(biome, dx, dz);
+				}
+			}
+			next.markBiomesScanned();
+			findNearestVillage(next, villageSets, structureState, resolver, cx, cz, radius, quartY);
+		}, Util.backgroundExecutor()).exceptionally(error -> {
+			com.mojang.logging.LogUtils.getLogger().warn("Minute Rush arena survey failed", error);
+			return null;
+		});
+	}
+
+	/**
+	 * Predicts the nearest village the way world generation places them: each spacing x spacing chunk region
+	 * has one seed-determined candidate chunk, which gets a village if a village type in the set accepts the
+	 * biome there. Runs on the survey worker thread. Unlike /locate it does not load chunks; the trade-off is
+	 * that it can't see a village that later fails to fit the terrain, which is rare.
+	 */
+	private static void findNearestVillage(ArenaSurvey<Holder<Biome>> survey, List<StructureSet> villageSets,
+			ChunkGeneratorStructureState structureState, BiomeResolver resolver, int cx, int cz, int radius,
+			int quartY) {
+		long seed = structureState.getLevelSeed();
+		int bestDx = 0;
+		int bestDz = 0;
+		int best = ArenaSurvey.NONE;
+		for (StructureSet set : villageSets) {
+			if (!(set.placement() instanceof RandomSpreadStructurePlacement spread)) {
+				continue;
+			}
+			int spacing = spread.spacing();
+			int minRegionX = Math.floorDiv((cx - radius) >> 4, spacing);
+			int maxRegionX = Math.floorDiv((cx + radius) >> 4, spacing);
+			int minRegionZ = Math.floorDiv((cz - radius) >> 4, spacing);
+			int maxRegionZ = Math.floorDiv((cz + radius) >> 4, spacing);
+			for (int regionX = minRegionX; regionX <= maxRegionX; regionX++) {
+				for (int regionZ = minRegionZ; regionZ <= maxRegionZ; regionZ++) {
+					ChunkPos candidate = spread.getPotentialStructureChunk(seed, regionX * spacing, regionZ * spacing);
+					int dx = candidate.getMiddleBlockX() - cx;
+					int dz = candidate.getMiddleBlockZ() - cz;
+					int distance = ArenaSurvey.distance(dx, dz);
+					if (distance > radius || distance >= best
+							|| !spread.isStructureChunk(structureState, candidate.x(), candidate.z())) {
+						continue;
+					}
+					Holder<Biome> biome = resolver.getNoiseBiome(QuartPos.fromBlock(candidate.getMiddleBlockX()),
+						quartY, QuartPos.fromBlock(candidate.getMiddleBlockZ()));
+					if (set.structures().stream().anyMatch(entry -> entry.structure().value().biomes().contains(biome))) {
+						best = distance;
+						bestDx = dx;
+						bestDz = dz;
+					}
+				}
+			}
+		}
+		if (best == ArenaSurvey.NONE) {
+			survey.markNoVillage();
+		} else {
+			survey.setVillageOffset(bestDx, bestDz);
+		}
+	}
+
+	/**
+	 * Whether a task's biome or village (see {@link TaskRequirements}) lies inside the current world border.
+	 * Tasks with requirements are unavailable until the survey has finished.
+	 */
+	public boolean taskAvailable(String taskId) {
+		TaskRequirements.Requirement requirement = TaskRequirements.of(taskId);
+		if (requirement == null) {
+			return true;
+		}
+		ArenaSurvey<Holder<Biome>> current = survey;
+		if (current == null) {
+			return false;
+		}
+		int halfSize = (int) (server.overworld().getWorldBorder().getSize() / 2);
+		return requirement.isMet(biome -> current.hasBiomeWithin(biome, halfSize), current.hasVillageWithin(halfSize));
 	}
 
 	public void placeParticipants(MinuteRushConfig config) {
@@ -477,6 +600,7 @@ public final class ArenaManager {
 
 	private void startChunkLoading(ServerLevel level) {
 		int generation = preparationGeneration.get();
+		startSurvey(level);
 		int halfWidth = ARENA_CHUNK_WIDTH / 2;
 		int halfDepth = ARENA_CHUNK_DEPTH / 2;
 		for (int x = -halfWidth; x < ARENA_CHUNK_WIDTH - halfWidth; x++) {

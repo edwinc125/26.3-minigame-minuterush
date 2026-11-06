@@ -387,7 +387,7 @@ public final class MinuteRushGame {
 	private void startRound() {
 		if (state != MatchState.ROUND_ACTIVE) return;
 		TaskFactory.Selection selection = TaskFactory.next(server.overworld(), random, Set.copyOf(recentTaskIds),
-			activePlayers().size() > 1);
+			activePlayers().size() > 1, arena::taskAvailable);
 		task = selection.task();
 		currentTaskId = selection.id();
 		skipVote.clear();
