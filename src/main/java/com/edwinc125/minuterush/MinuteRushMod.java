@@ -45,12 +45,19 @@ public final class MinuteRushMod implements ModInitializer {
 	private static MinuteRushGame game;
 	private static final Map<UUID, Boolean> PASSENGER_STATE = new HashMap<>();
 	private static final Map<UUID, OffhandSwapProgress> OFFHAND_SWAP_STATE = new HashMap<>();
+	/** Checks that need to see the result of an interaction; see {@link DeferredChecks}. */
+	private static final DeferredChecks AFTER_INTERACTION = new DeferredChecks();
 
 	@Override
 	public void onInitialize() {
 		ServerLifecycleEvents.SERVER_STARTED.register(server -> game = new MinuteRushGame(server));
-		ServerLifecycleEvents.SERVER_STOPPING.register(server -> game = null);
+		ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
+			game = null;
+			AFTER_INTERACTION.clear();
+		});
 		ServerTickEvents.END_SERVER_TICK.register(server -> {
+			// Before game.tick(), so a task completed by an interaction is scored this tick.
+			AFTER_INTERACTION.runAll();
 			if (game != null) {
 				game.tick();
 			}
@@ -336,7 +343,7 @@ public final class MinuteRushMod implements ModInitializer {
 		BlockState clickedBefore = player.level().getBlockState(hitResult.getBlockPos());
 		net.minecraft.core.BlockPos adjacentPos = hitResult.getBlockPos().relative(hitResult.getDirection());
 		BlockState adjacentBefore = player.level().getBlockState(adjacentPos);
-		player.level().getServer().execute(() -> {
+		AFTER_INTERACTION.add(() -> {
 			if (game == null || !player.isAlive()) {
 				return;
 			}
@@ -350,7 +357,7 @@ public final class MinuteRushMod implements ModInitializer {
 
 	private static void recordDeferredBucketUse(ServerPlayer player, InteractionHand hand,
 			ItemStack heldBefore) {
-		player.level().getServer().execute(() -> {
+		AFTER_INTERACTION.add(() -> {
 			if (game == null || !player.isAlive()) {
 				return;
 			}
@@ -368,7 +375,7 @@ public final class MinuteRushMod implements ModInitializer {
 
 	private static void recordDeferredToolUse(ServerPlayer player, InteractionHand hand,
 			ItemStack heldBefore, String event) {
-		player.level().getServer().execute(() -> {
+		AFTER_INTERACTION.add(() -> {
 			if (game == null || !player.isAlive()) {
 				return;
 			}
@@ -384,7 +391,7 @@ public final class MinuteRushMod implements ModInitializer {
 	 */
 	private static void recordDeferredOpen(ServerPlayer player, net.minecraft.core.BlockPos pos,
 			BlockState before, String event) {
-		player.level().getServer().execute(() -> {
+		AFTER_INTERACTION.add(() -> {
 			BlockState after = player.level().getBlockState(pos);
 			if (game != null && after.is(before.getBlock())
 					&& after.hasProperty(net.minecraft.world.level.block.state.properties.BlockStateProperties.OPEN)
@@ -395,7 +402,7 @@ public final class MinuteRushMod implements ModInitializer {
 	}
 
 	private static void recordSuccessfulLeash(ServerPlayer player, Leashable leashable) {
-		player.level().getServer().execute(() -> {
+		AFTER_INTERACTION.add(() -> {
 			if (game != null && leashable.getLeashHolder() == player) {
 				EntityTaskProgress.record(player.getUUID(), "use:lead");
 			}
@@ -404,7 +411,7 @@ public final class MinuteRushMod implements ModInitializer {
 
 	private static void recordSuccessfulMilking(ServerPlayer player, InteractionHand hand,
 			Entity entity, String event) {
-		player.level().getServer().execute(() -> {
+		AFTER_INTERACTION.add(() -> {
 			if (game != null && entity.isAlive()
 					&& player.getItemInHand(hand).is(Items.MILK_BUCKET)) {
 				EntityTaskProgress.record(player.getUUID(), event);
@@ -419,7 +426,7 @@ public final class MinuteRushMod implements ModInitializer {
 
 	private static void recordSuccessfulCampfireLighting(ServerPlayer player,
 			net.minecraft.core.BlockPos pos, ItemStack heldBefore, InteractionHand hand) {
-		player.level().getServer().execute(() -> {
+		AFTER_INTERACTION.add(() -> {
 			BlockState state = player.level().getBlockState(pos);
 			if (game != null && state.hasProperty(net.minecraft.world.level.block.CampfireBlock.LIT)
 					&& state.getValue(net.minecraft.world.level.block.CampfireBlock.LIT)
