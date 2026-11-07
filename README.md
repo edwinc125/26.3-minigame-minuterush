@@ -8,19 +8,27 @@ Minute Rush is a Fabric 26.3 minigame. Everyone receives the same randomly selec
 2. Run `./gradlew build`.
 3. Use the generated Fabric server/client run configuration.
 
-Operators can use:
+Anyone can use:
+
+- `/minute-rush config` - open the settings book: difficulty, PvP, points to win and time per round
+- `/minute-rush config score <value>` - set the points needed to win
+- `/minute-rush config duration <seconds>` - set the time per round
+- `/minute-rush config difficulty <easy|medium|hard|progressive>` - set the match difficulty
+- `/minute-rush config pvp <on|off>` - on: players can hurt each other all match; off: only during tasks that target another player
+- `/minute-rush status` - inspect match state
+- `/voteskip` - vote to skip the current round
+
+Settings changes are announced to everyone. Only operators can change settings while a match is running.
+
+Operators can also use:
 
 - `/minute-rush start` - start a match (requires at least two players)
 - `/minute-rush solo-start` - start an isolated one-player testing match in a singleplayer world
 - `/minute-rush solo-exit` - stop singleplayer testing and reset its score
 - `/minute-rush skip` - skip the current round (useful while testing)
-- `/minute-rush status` - inspect match state
 - `/minute-rush reset` - reset the match and scores
-- `/minute-rush config score <value>` - set the winning score
-- `/minute-rush config duration <seconds>` - set the round timeout
-- `/minute-rush config difficulty <easy|medium|hard|progressive>` - set the match difficulty
 
-The task catalog now covers placing, collecting, mining, jumping, traveling, sprinting, swimming, walking, repeated jumps, hold-item actions, player interaction, mob interaction, and interactable-block interaction. The game avoids the previous three task kinds when the pool has alternatives, so the same task family does not repeat immediately. Singleplayer deliberately excludes the player-player task because it has no second participant; the other task families use the same round lifecycle as multiplayer. Placement tasks no longer require coordinates: place the requested block anywhere, and the game detects the placement from your item-use stat. Tasks use per-player baselines so pre-existing inventory/stat progress does not falsely complete a round. Settings default to 10 points and 60 seconds and can be changed with the config commands.
+The task catalog now covers placing, collecting, mining, jumping, traveling, sprinting, swimming, walking, repeated jumps, hold-item actions, player interaction, mob interaction, and interactable-block interaction. The game avoids the previous three task kinds when the pool has alternatives, so the same task family does not repeat immediately. Singleplayer deliberately excludes the player-player task because it has no second participant; the other task families use the same round lifecycle as multiplayer. Placement tasks no longer require coordinates: place the requested block anywhere, and the game detects the placement from your item-use stat. Tasks use per-player baselines so pre-existing inventory/stat progress does not falsely complete a round. Settings default to progressive difficulty, PvP on, 10 points and 60 seconds, and can be changed from the settings book or the config commands.
 
 Task selection combines each catalog rarity with its action multiplier: crafting 1.50, movement/exploration 1.40, interactive/combat 1.25, mine/place/collect 0.80, and hold 0.40. Collection and mining tasks no longer grant starter items; players must obtain the required resources normally.
 

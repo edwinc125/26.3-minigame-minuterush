@@ -12,11 +12,12 @@ public record MinuteRushConfig(
 		int borderExpansionBlocksPerSecond,
 		int maxBorderSize,
 		int keepInventoryGraceSeconds,
-		MatchDifficulty difficulty) {
+		MatchDifficulty difficulty,
+		boolean pvp) {
 	public static final MinuteRushConfig DEFAULT = new MinuteRushConfig(10, 60);
 
 	public MinuteRushConfig(int targetScore, int roundDurationSeconds) {
-		this(targetScore, roundDurationSeconds, 5, 5, 20, 20, 5, 1000, 5, MatchDifficulty.PROGRESSIVE);
+		this(targetScore, roundDurationSeconds, 5, 5, 20, 20, 5, 1000, 5, MatchDifficulty.PROGRESSIVE, true);
 	}
 
 	public MinuteRushConfig {
@@ -34,18 +35,25 @@ public record MinuteRushConfig(
 	public MinuteRushConfig withTargetScore(int targetScore) {
 		return new MinuteRushConfig(targetScore, roundDurationSeconds, preGameCountdownSeconds,
 			interRoundBreakSeconds, arenaChunkWidth, arenaChunkDepth, borderExpansionBlocksPerSecond,
-			maxBorderSize, keepInventoryGraceSeconds, difficulty);
+			maxBorderSize, keepInventoryGraceSeconds, difficulty, pvp);
 	}
 
 	public MinuteRushConfig withRoundDurationSeconds(int roundDurationSeconds) {
 		return new MinuteRushConfig(targetScore, roundDurationSeconds, preGameCountdownSeconds,
 			interRoundBreakSeconds, arenaChunkWidth, arenaChunkDepth, borderExpansionBlocksPerSecond,
-			maxBorderSize, keepInventoryGraceSeconds, difficulty);
+			maxBorderSize, keepInventoryGraceSeconds, difficulty, pvp);
 	}
 
 	public MinuteRushConfig withDifficulty(MatchDifficulty difficulty) {
 		return new MinuteRushConfig(targetScore, roundDurationSeconds, preGameCountdownSeconds,
 			interRoundBreakSeconds, arenaChunkWidth, arenaChunkDepth, borderExpansionBlocksPerSecond,
-			maxBorderSize, keepInventoryGraceSeconds, difficulty);
+			maxBorderSize, keepInventoryGraceSeconds, difficulty, pvp);
+	}
+
+	/** @param pvp true: players can hurt each other all match; false: only during tasks that target a player */
+	public MinuteRushConfig withPvp(boolean pvp) {
+		return new MinuteRushConfig(targetScore, roundDurationSeconds, preGameCountdownSeconds,
+			interRoundBreakSeconds, arenaChunkWidth, arenaChunkDepth, borderExpansionBlocksPerSecond,
+			maxBorderSize, keepInventoryGraceSeconds, difficulty, pvp);
 	}
 }
