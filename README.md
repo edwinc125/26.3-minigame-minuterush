@@ -18,12 +18,23 @@ Operators can use:
 - `/minute-rush reset` - reset the match and scores
 - `/minute-rush config score <value>` - set the winning score
 - `/minute-rush config duration <seconds>` - set the round timeout
+- `/minute-rush config difficulty <easy|medium|hard|progressive>` - set the match difficulty
 
 The task catalog now covers placing, collecting, mining, jumping, traveling, sprinting, swimming, walking, repeated jumps, hold-item actions, player interaction, mob interaction, and interactable-block interaction. The game avoids the previous three task kinds when the pool has alternatives, so the same task family does not repeat immediately. Singleplayer deliberately excludes the player-player task because it has no second participant; the other task families use the same round lifecycle as multiplayer. Placement tasks no longer require coordinates: place the requested block anywhere, and the game detects the placement from your item-use stat. Tasks use per-player baselines so pre-existing inventory/stat progress does not falsely complete a round. Settings default to 10 points and 60 seconds and can be changed with the config commands.
 
 Task selection combines each catalog rarity with its action multiplier: crafting 1.50, movement/exploration 1.40, interactive/combat 1.25, mine/place/collect 0.80, and hold 0.40. Collection and mining tasks no longer grant starter items; players must obtain the required resources normally.
 
-Each task also has a difficulty based on what it needs: **Simple** (no items, e.g. walking or hitting a mob), **Easy** (wood, stone, copper and common drops), **Medium** (iron, gold, redstone, string, and rare drops such as apples) and **Hard** (diamonds and emeralds). Harder tasks unlock as the match goes on, in blocks of 3n tasks where n is the number of players: the first 3n tasks are only Simple or Easy, Medium tasks join at half weight in the next 3n and at full weight after that, and Hard tasks follow one block behind Medium.
+Each task also has a difficulty based on what it needs: **Simple** (no items, e.g. walking or hitting a mob), **Easy** (wood, stone, copper and common drops), **Medium** (iron, gold, redstone, string, and rare drops such as apples) and **Hard** (diamonds and emeralds).
+
+The match difficulty (`/minute-rush config difficulty <mode>`, default `progressive`) sets how often each tier comes up:
+
+| Mode | Simple + Easy | Medium | Hard |
+| --- | --- | --- | --- |
+| `easy` | 60% | 30% | 10% |
+| `medium` | 40% | 40% | 20% |
+| `hard` | 30% | 45% | 25% |
+
+`progressive` plays as `easy` for 5 minutes or 3N tasks, then `medium` for 7 minutes or 4N tasks (whichever comes first each time), then `hard` for the rest of the match. In every mode the first 3N tasks are Simple or Easy only, so players can gather resources first. N is the number of active players, not counting spectators. If a tier has no task possible in the arena, the other tiers share its chance.
 
 Every round begins with a short countdown. The task is shown in colored chat/title text, and the round winner and score are shown the same way without title fade-in. A sidebar scoreboard displays the current task, seconds remaining, and each player's match score. A bossbar mirrors the current task and timer. New rounds, countdowns, round wins, match wins, and timeouts provide sound feedback. Mob tasks accept either right-click/use or left-click/attack; the wording says "Use or hit any mob" to make that behavior explicit. `/minute-rush solo-start` uses this same countdown, task announcement, timeout, scoring, and reset lifecycle; it only relaxes the normal two-player start requirement.
 

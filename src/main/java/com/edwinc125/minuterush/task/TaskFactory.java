@@ -27,15 +27,15 @@ public final class TaskFactory {
 
 	public static Selection next(ServerLevel level, Random random, Set<String> recent, boolean allowPlayerInteraction,
 			java.util.function.Predicate<String> possible) {
-		return next(level, random, recent, allowPlayerInteraction, possible, Integer.MAX_VALUE);
+		return next(level, random, recent, allowPlayerInteraction, possible, null);
 	}
 
 	/**
 	 * @param possible whether a task can be done in the current arena (see TaskRequirements)
-	 * @param stage    match stage from {@link TaskDifficulty#stage}; harder tasks are locked or down-weighted early on
+	 * @param mix      how likely each difficulty tier is; null picks from the whole pool by task weight alone
 	 */
 	public static Selection next(ServerLevel level, Random random, Set<String> recent, boolean allowPlayerInteraction,
-			java.util.function.Predicate<String> possible, int stage) {
+			java.util.function.Predicate<String> possible, DifficultyMix mix) {
 		List<Selection> candidates = all(level);
 		if (!allowPlayerInteraction) {
 			candidates.removeIf(selection -> isPlayerTask(selection.id()));
@@ -47,14 +47,23 @@ public final class TaskFactory {
 		if (available.isEmpty()) {
 			available = candidates;
 		}
-		List<Selection> unlocked = available.stream()
-			.filter(selection -> selection.difficulty().multiplier(stage) > 0)
-			.toList();
-		if (unlocked.isEmpty()) {
+		if (mix == null) {
 			return TaskSelection.chooseWeighted(random, available);
 		}
-		return TaskSelection.chooseWeighted(random, unlocked,
-			selection -> selection.weight() * selection.difficulty().multiplier(stage));
+		// Pick a tier by the mix's percentages, then a task inside it by the usual weights. Tiers with no
+		// available task drop out and the others share their percentage.
+		java.util.Map<DifficultyMix.Tier, List<Selection>> byTier = new java.util.EnumMap<>(DifficultyMix.Tier.class);
+		for (Selection selection : available) {
+			DifficultyMix.Tier tier = DifficultyMix.Tier.of(selection.difficulty());
+			if (mix.share(tier) > 0) {
+				byTier.computeIfAbsent(tier, ignored -> new ArrayList<>()).add(selection);
+			}
+		}
+		if (byTier.isEmpty()) {
+			return TaskSelection.chooseWeighted(random, available);
+		}
+		DifficultyMix.Tier tier = TaskSelection.chooseWeighted(random, List.copyOf(byTier.keySet()), mix::share);
+		return TaskSelection.chooseWeighted(random, byTier.get(tier));
 	}
 
 	/** Every task in the pool, before arena, player-count, recency and difficulty filtering. */

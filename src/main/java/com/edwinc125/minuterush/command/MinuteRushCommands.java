@@ -1,6 +1,7 @@
 package com.edwinc125.minuterush.command;
 
 import com.edwinc125.minuterush.game.MinuteRushGame;
+import com.edwinc125.minuterush.task.MatchDifficulty;
 import java.util.function.Supplier;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
@@ -41,7 +42,13 @@ public final class MinuteRushCommands {
 				.then(Commands.literal("duration")
 					.then(Commands.argument("seconds", IntegerArgumentType.integer(1))
 						.executes(context -> configure(context.getSource(), gameSupplier, "duration",
-							IntegerArgumentType.getInteger(context, "seconds"))))))
+							IntegerArgumentType.getInteger(context, "seconds")))))
+				.then(Commands.literal("difficulty")
+					.then(Commands.argument("mode", StringArgumentType.word())
+						.suggests((context, builder) -> SharedSuggestionProvider.suggest(
+							java.util.Arrays.stream(MatchDifficulty.values()).map(MatchDifficulty::id), builder))
+						.executes(context -> configureDifficulty(context.getSource(), gameSupplier,
+							StringArgumentType.getString(context, "mode"))))))
 			.then(Commands.literal("status").requires(source -> true)
 				.executes(context -> status(context.getSource(), gameSupplier))));
 		dispatcher.register(Commands.literal("voteskip")
@@ -60,6 +67,22 @@ public final class MinuteRushCommands {
 			game.setRoundDurationSeconds(value);
 		}
 		source.sendSuccess(() -> Component.literal("Updated " + setting + " to " + value + "."), true);
+		return 1;
+	}
+
+	private static int configureDifficulty(CommandSourceStack source, Supplier<MinuteRushGame> supplier, String mode) {
+		MinuteRushGame game = supplier.get();
+		if (game == null) {
+			source.sendFailure(Component.literal("The server is not ready."));
+			return 0;
+		}
+		MatchDifficulty difficulty = MatchDifficulty.parse(mode);
+		if (difficulty == null) {
+			source.sendFailure(Component.literal("Unknown difficulty \"" + mode + "\". Use easy, medium, hard or progressive."));
+			return 0;
+		}
+		game.setDifficulty(difficulty);
+		source.sendSuccess(() -> Component.literal("Updated difficulty to " + difficulty.id() + "."), true);
 		return 1;
 	}
 

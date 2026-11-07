@@ -11,37 +11,10 @@ import java.util.Set;
  *   <li>{@link #HARD} - diamonds (and emeralds)</li>
  * </ul>
  *
- * <p>A match unlocks harder tasks over time. Tasks are counted in blocks of {@code 3n}, where n is the number of
- * players: the first block only draws Simple and Easy tasks, Medium tasks join in the second block and Hard tasks in
- * the third. A newly unlocked tier starts at half weight and reaches full weight one block later.
+ * <p>How often each tier comes up is set by the match's {@link MatchDifficulty} (see {@link DifficultyMix}).
  */
 public enum TaskDifficulty {
-	SIMPLE(0), EASY(0), MEDIUM(1), HARD(2);
-
-	/** Tasks per stage for each player in the match. */
-	public static final int TASKS_PER_PLAYER_PER_STAGE = 3;
-
-	private final int unlockStage;
-
-	TaskDifficulty(int unlockStage) {
-		this.unlockStage = unlockStage;
-	}
-
-	/** The stage a match is in after {@code tasksPicked} tasks with {@code players} players (0 = first 3n tasks). */
-	public static int stage(int tasksPicked, int players) {
-		return Math.max(0, tasksPicked) / (TASKS_PER_PLAYER_PER_STAGE * Math.max(1, players));
-	}
-
-	/**
-	 * Weight multiplier for this difficulty at a match stage: 0 while locked, 0.5 in the stage it unlocks, then 1.
-	 * Simple and Easy are available at full weight from the start.
-	 */
-	public double multiplier(int stage) {
-		if (stage < unlockStage) {
-			return 0.0;
-		}
-		return unlockStage == 0 || stage > unlockStage ? 1.0 : 0.5;
-	}
+	SIMPLE, EASY, MEDIUM, HARD;
 
 	/** Returns the difficulty for a task id, or null if the id is not classified. */
 	public static TaskDifficulty classify(String taskId) {

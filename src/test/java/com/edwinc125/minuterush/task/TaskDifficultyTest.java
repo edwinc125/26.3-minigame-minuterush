@@ -18,28 +18,6 @@ class TaskDifficultyTest {
 	}
 
 	@Test
-	void stagesAdvanceEveryThreeTasksPerPlayer() {
-		assertEquals(0, TaskDifficulty.stage(0, 2));
-		assertEquals(0, TaskDifficulty.stage(5, 2));
-		assertEquals(1, TaskDifficulty.stage(6, 2));
-		assertEquals(2, TaskDifficulty.stage(12, 2));
-		assertEquals(1, TaskDifficulty.stage(3, 1));
-		assertEquals(1, TaskDifficulty.stage(3, 0), "zero players counts as one");
-	}
-
-	@Test
-	void harderTiersUnlockGradually() {
-		assertEquals(1.0, TaskDifficulty.SIMPLE.multiplier(0));
-		assertEquals(1.0, TaskDifficulty.EASY.multiplier(0));
-		assertEquals(0.0, TaskDifficulty.MEDIUM.multiplier(0));
-		assertEquals(0.5, TaskDifficulty.MEDIUM.multiplier(1));
-		assertEquals(1.0, TaskDifficulty.MEDIUM.multiplier(2));
-		assertEquals(0.0, TaskDifficulty.HARD.multiplier(1));
-		assertEquals(0.5, TaskDifficulty.HARD.multiplier(2));
-		assertEquals(1.0, TaskDifficulty.HARD.multiplier(3));
-	}
-
-	@Test
 	void everyTaskInThePoolIsClassified() {
 		for (TaskFactory.Selection selection : TaskFactory.all(null)) {
 			if (selection.id().startsWith("stone:")) {
@@ -61,11 +39,37 @@ class TaskDifficultyTest {
 	}
 
 	@Test
-	void theFirstStageOnlyDrawsSimpleAndEasyTasks() {
+	void warmUpOnlyDrawsSimpleAndEasyTasks() {
 		Random random = new Random(7);
 		for (int i = 0; i < 500; i++) {
-			TaskFactory.Selection selection = TaskFactory.next(null, random, java.util.Set.of(), true, id -> true, 0);
+			TaskFactory.Selection selection = TaskFactory.next(null, random, java.util.Set.of(), true, id -> true,
+				DifficultyMix.WARM_UP);
 			assertTrue(selection.difficulty().ordinal() <= TaskDifficulty.EASY.ordinal(), selection.id());
+		}
+	}
+
+	@Test
+	void tiersAreDrawnInTheModesProportions() {
+		Random random = new Random(11);
+		java.util.Map<DifficultyMix.Tier, Integer> counts = new java.util.EnumMap<>(DifficultyMix.Tier.class);
+		int draws = 20000;
+		for (int i = 0; i < draws; i++) {
+			TaskFactory.Selection selection = TaskFactory.next(null, random, java.util.Set.of(), true, id -> true,
+				MatchDifficulty.HARD.mix());
+			counts.merge(DifficultyMix.Tier.of(selection.difficulty()), 1, Integer::sum);
+		}
+		assertEquals(0.30, counts.get(DifficultyMix.Tier.SIMPLE_OR_EASY) / (double) draws, 0.02);
+		assertEquals(0.45, counts.get(DifficultyMix.Tier.MEDIUM) / (double) draws, 0.02);
+		assertEquals(0.25, counts.get(DifficultyMix.Tier.HARD) / (double) draws, 0.02);
+	}
+
+	@Test
+	void unavailableTiersGiveTheirShareToTheOthers() {
+		Random random = new Random(3);
+		for (int i = 0; i < 200; i++) {
+			TaskFactory.Selection selection = TaskFactory.next(null, random, java.util.Set.of(), true,
+				id -> TaskDifficulty.of(id) != TaskDifficulty.HARD, MatchDifficulty.HARD.mix());
+			assertTrue(selection.difficulty() != TaskDifficulty.HARD, selection.id());
 		}
 	}
 
