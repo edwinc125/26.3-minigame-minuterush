@@ -411,7 +411,9 @@ public final class MinuteRushGame {
 		if (state != MatchState.ROUND_ACTIVE) return;
 		TaskFactory.Selection selection = TaskFactory.next(server.overworld(), random, Set.copyOf(recentTaskIds),
 			activePlayers().size() > 1, arena::taskAvailable,
-			difficultyProgress.next(config.difficulty(), activePlayers().size(), matchTicks));
+			// N counts everyone in the match, including anyone briefly disconnected (they can rejoin). Counting only
+			// online players would let one dropped connection end the warm-up early, with no way back.
+			difficultyProgress.next(config.difficulty(), participants.size(), matchTicks));
 		task = selection.task();
 		currentTaskId = selection.id();
 		skipVote.clear();

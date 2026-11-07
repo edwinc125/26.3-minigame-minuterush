@@ -8,8 +8,8 @@ package com.edwinc125.minuterush.task;
  *   <li>{@link MatchDifficulty#PROGRESSIVE} plays as Easy for 5 minutes or 3N tasks, then as Medium for 7 minutes or
  *       4N tasks (whichever comes first in each case), then as Hard for the rest of the match.</li>
  * </ul>
- * N is the number of active players (spectators excluded). The progressive phase is tracked in every mode, so
- * switching to progressive mid-match picks up where the match already is.
+ * N is the number of players in the match (spectators excluded, briefly disconnected players included). The
+ * progressive phase is tracked in every mode, so switching to progressive mid-match picks up where the match is.
  */
 public final class DifficultyProgress {
 	static final int WARM_UP_TASKS_PER_PLAYER = 3;
@@ -33,7 +33,7 @@ public final class DifficultyProgress {
 	/**
 	 * Returns the mix for the next task and counts it as picked.
 	 *
-	 * @param players      active players, spectators excluded
+	 * @param players      players in the match, spectators excluded
 	 * @param elapsedTicks game ticks since the first round of the match started
 	 */
 	public DifficultyMix next(MatchDifficulty mode, int players, long elapsedTicks) {
