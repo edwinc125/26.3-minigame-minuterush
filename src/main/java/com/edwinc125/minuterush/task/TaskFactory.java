@@ -25,12 +25,18 @@ public final class TaskFactory {
 		return next(level, random, recent, allowPlayerInteraction, id -> true);
 	}
 
-	/** @param possible whether a task can be done in the current arena (see TaskRequirements) */
 	public static Selection next(ServerLevel level, Random random, Set<String> recent, boolean allowPlayerInteraction,
 			java.util.function.Predicate<String> possible) {
-		List<Selection> candidates = new ArrayList<>();
-		addBasicTasks(level, candidates);
-		addLegacyTasks(level, candidates);
+		return next(level, random, recent, allowPlayerInteraction, possible, Integer.MAX_VALUE);
+	}
+
+	/**
+	 * @param possible whether a task can be done in the current arena (see TaskRequirements)
+	 * @param stage    match stage from {@link TaskDifficulty#stage}; harder tasks are locked or down-weighted early on
+	 */
+	public static Selection next(ServerLevel level, Random random, Set<String> recent, boolean allowPlayerInteraction,
+			java.util.function.Predicate<String> possible, int stage) {
+		List<Selection> candidates = all(level);
 		if (!allowPlayerInteraction) {
 			candidates.removeIf(selection -> isPlayerTask(selection.id()));
 		}
@@ -41,7 +47,22 @@ public final class TaskFactory {
 		if (available.isEmpty()) {
 			available = candidates;
 		}
-		return TaskSelection.chooseWeighted(random, available);
+		List<Selection> unlocked = available.stream()
+			.filter(selection -> selection.difficulty().multiplier(stage) > 0)
+			.toList();
+		if (unlocked.isEmpty()) {
+			return TaskSelection.chooseWeighted(random, available);
+		}
+		return TaskSelection.chooseWeighted(random, unlocked,
+			selection -> selection.weight() * selection.difficulty().multiplier(stage));
+	}
+
+	/** Every task in the pool, before arena, player-count, recency and difficulty filtering. */
+	static List<Selection> all(ServerLevel level) {
+		List<Selection> candidates = new ArrayList<>();
+		addBasicTasks(level, candidates);
+		addLegacyTasks(level, candidates);
+		return candidates;
 	}
 
 	/**
@@ -107,10 +128,12 @@ public final class TaskFactory {
 		for (StoneTaskCatalog.Entry entry : StoneTaskCatalog.entries()) {
 			String id = stoneTaskId(entry);
 			if (entry.mine()) {
-				candidates.add(new Selection(id + ":mine", new DigBlockTask(entry.block()), entry.rarityWeight(), "mine"));
+				candidates.add(new Selection(id + ":mine", new DigBlockTask(entry.block()), entry.rarityWeight(), "mine",
+					entry.difficulty()));
 			}
 			if (entry.place()) {
-				candidates.add(new Selection(id + ":place", new PlaceBlockTask(entry.block()), entry.rarityWeight(), "place"));
+				candidates.add(new Selection(id + ":place", new PlaceBlockTask(entry.block()), entry.rarityWeight(), "place",
+					entry.difficulty()));
 			}
 		}
 	}
@@ -119,7 +142,8 @@ public final class TaskFactory {
 		for (StoneTaskCatalog.Entry entry : StoneTaskCatalog.entries()) {
 			if (entry.craft()) {
 				candidates.add(new Selection(stoneTaskId(entry) + ":craft",
-					new CraftItemTask(entry.item(), entry.make().verb()), entry.rarityWeight(), "crafting"));
+					new CraftItemTask(entry.item(), entry.make().verb()), entry.rarityWeight(), "crafting",
+					entry.difficulty()));
 			}
 		}
 	}
@@ -440,10 +464,14 @@ public final class TaskFactory {
 			player -> player.getStats().getValue(type, stat)), 1.0, "movement"));
 	}
 
-	public record Selection(String id, MinuteRushTask task, double rarityWeight, String actionType)
-		implements TaskSelection.Weighted {
+	public record Selection(String id, MinuteRushTask task, double rarityWeight, String actionType,
+		TaskDifficulty difficulty) implements TaskSelection.Weighted {
 		public Selection(String id, MinuteRushTask task) {
 			this(id, task, 1.0, "interactive");
+		}
+
+		public Selection(String id, MinuteRushTask task, double rarityWeight, String actionType) {
+			this(id, task, rarityWeight, actionType, TaskDifficulty.of(id));
 		}
 
 		@Override

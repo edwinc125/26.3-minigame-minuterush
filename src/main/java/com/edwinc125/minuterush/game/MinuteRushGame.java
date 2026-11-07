@@ -34,6 +34,8 @@ public final class MinuteRushGame {
 	private final Map<UUID, Integer> scores = new HashMap<>();
 	private final java.util.Set<UUID> participants = new java.util.HashSet<>();
 	private final Deque<String> recentTaskIds = new ArrayDeque<>();
+	/** Tasks drawn so far this match; drives which difficulty tiers are unlocked (see TaskDifficulty). */
+	private int tasksPicked;
 	private final Map<UUID, String> previousStandingBlocks = new HashMap<>();
 	private final Random random = new Random();
 	private final SkipVote skipVote = new SkipVote();
@@ -265,6 +267,7 @@ public final class MinuteRushGame {
 	private String beginMatch(String message) {
 		scores.replaceAll((id, score) -> 0);
 		recentTaskIds.clear();
+		tasksPicked = 0;
 		intermissionTicks = 0;
 		currentTaskId = null;
 		state = MatchState.PREPARING_ARENA;
@@ -387,7 +390,9 @@ public final class MinuteRushGame {
 	private void startRound() {
 		if (state != MatchState.ROUND_ACTIVE) return;
 		TaskFactory.Selection selection = TaskFactory.next(server.overworld(), random, Set.copyOf(recentTaskIds),
-			activePlayers().size() > 1, arena::taskAvailable);
+			activePlayers().size() > 1, arena::taskAvailable,
+			com.edwinc125.minuterush.task.TaskDifficulty.stage(tasksPicked, participants.size()));
+		tasksPicked++;
 		task = selection.task();
 		currentTaskId = selection.id();
 		skipVote.clear();
