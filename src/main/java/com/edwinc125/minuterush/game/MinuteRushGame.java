@@ -34,6 +34,11 @@ public final class MinuteRushGame {
 	private final Map<UUID, Integer> scores = new HashMap<>();
 	private final java.util.Set<UUID> participants = new java.util.HashSet<>();
 	private final Deque<String> recentTaskIds = new ArrayDeque<>();
+	/** Decides how likely each task difficulty is as the match goes on. */
+	private final com.edwinc125.minuterush.task.DifficultyProgress difficultyProgress =
+		new com.edwinc125.minuterush.task.DifficultyProgress();
+	/** Ticks since the first round of the match started; drives progressive difficulty. */
+	private long matchTicks;
 	private final Map<UUID, String> previousStandingBlocks = new HashMap<>();
 	private final Random random = new Random();
 	private final SkipVote skipVote = new SkipVote();
@@ -107,6 +112,10 @@ public final class MinuteRushGame {
 
 	public void setRoundDurationSeconds(int roundDurationSeconds) {
 		config = config.withRoundDurationSeconds(roundDurationSeconds);
+	}
+
+	public void setDifficulty(com.edwinc125.minuterush.task.MatchDifficulty difficulty) {
+		config = config.withDifficulty(difficulty);
 	}
 
 	public void playerJoined(ServerPlayer player) {
@@ -189,6 +198,9 @@ public final class MinuteRushGame {
 			}
 			return;
 		}
+		if (state == MatchState.ROUND_ACTIVE || state == MatchState.INTERMISSION || state == MatchState.COUNTDOWN) {
+			matchTicks++;
+		}
 		if (state == MatchState.PRE_GAME_COUNTDOWN || state == MatchState.COUNTDOWN) {
 			arena.holdFrozen();
 			playCountdownCue(countdownTicks);
@@ -265,6 +277,8 @@ public final class MinuteRushGame {
 	private String beginMatch(String message) {
 		scores.replaceAll((id, score) -> 0);
 		recentTaskIds.clear();
+		difficultyProgress.reset();
+		matchTicks = 0;
 		intermissionTicks = 0;
 		currentTaskId = null;
 		state = MatchState.PREPARING_ARENA;
@@ -381,13 +395,25 @@ public final class MinuteRushGame {
 
 	public String status() {
 		String mode = participants.size() == 1 ? "singleplayer test" : "multiplayer";
-		return "State: " + state + " (" + mode + "), target score: " + config.targetScore() + ", round seconds: " + config.roundDurationSeconds();
+		return "State: " + state + " (" + mode + "), target score: " + config.targetScore() + ", round seconds: " + config.roundDurationSeconds() + ", difficulty: " + difficultyDescription();
+	}
+
+	private String difficultyDescription() {
+		if (config.difficulty() != com.edwinc125.minuterush.task.MatchDifficulty.PROGRESSIVE) {
+			return config.difficulty().id();
+		}
+		return isMatchInProgress()
+			? "progressive (now " + difficultyProgress.progressivePhase().id() + ")"
+			: "progressive";
 	}
 
 	private void startRound() {
 		if (state != MatchState.ROUND_ACTIVE) return;
 		TaskFactory.Selection selection = TaskFactory.next(server.overworld(), random, Set.copyOf(recentTaskIds),
-			activePlayers().size() > 1, arena::taskAvailable);
+			activePlayers().size() > 1, arena::taskAvailable,
+			// N counts everyone in the match, including anyone briefly disconnected (they can rejoin). Counting only
+			// online players would let one dropped connection end the warm-up early, with no way back.
+			difficultyProgress.next(config.difficulty(), participants.size(), matchTicks));
 		task = selection.task();
 		currentTaskId = selection.id();
 		skipVote.clear();

@@ -40,6 +40,11 @@ public final class StoneTaskCatalog {
 		public Block block() {
 			return Block.byItem(item);
 		}
+
+		/** Surface stone is basic material; deepslate, tuff, moss and mud need depth or extra materials. */
+		public TaskDifficulty difficulty() {
+			return rarityWeight <= RARE ? TaskDifficulty.MEDIUM : TaskDifficulty.EASY;
+		}
 	}
 
 	public static List<Entry> entries() {

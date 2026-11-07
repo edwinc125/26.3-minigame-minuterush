@@ -26,13 +26,18 @@ public final class TaskSelection {
 	}
 
 	public static <T extends Weighted> T chooseWeighted(RandomGenerator random, List<T> candidates) {
+		return chooseWeighted(random, candidates, Weighted::weight);
+	}
+
+	public static <T> T chooseWeighted(RandomGenerator random, List<T> candidates,
+			java.util.function.ToDoubleFunction<? super T> weight) {
 		if (candidates.isEmpty()) {
 			throw new IllegalArgumentException("Weighted pool must not be empty");
 		}
-		double total = candidates.stream().mapToDouble(Weighted::weight).sum();
+		double total = candidates.stream().mapToDouble(weight).sum();
 		double pick = random.nextDouble(total);
 		for (T candidate : candidates) {
-			pick -= candidate.weight();
+			pick -= weight.applyAsDouble(candidate);
 			if (pick < 0) {
 				return candidate;
 			}

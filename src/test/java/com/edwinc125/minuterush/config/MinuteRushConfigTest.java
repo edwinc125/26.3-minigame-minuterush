@@ -9,6 +9,7 @@ class MinuteRushConfigTest {
 	void defaultsMatchTheGameRules() {
 		assertEquals(10, MinuteRushConfig.DEFAULT.targetScore());
 		assertEquals(60, MinuteRushConfig.DEFAULT.roundDurationSeconds());
+		assertEquals(com.edwinc125.minuterush.task.MatchDifficulty.PROGRESSIVE, MinuteRushConfig.DEFAULT.difficulty());
 	}
 
 	@Test

@@ -25,12 +25,18 @@ public final class TaskFactory {
 		return next(level, random, recent, allowPlayerInteraction, id -> true);
 	}
 
-	/** @param possible whether a task can be done in the current arena (see TaskRequirements) */
 	public static Selection next(ServerLevel level, Random random, Set<String> recent, boolean allowPlayerInteraction,
 			java.util.function.Predicate<String> possible) {
-		List<Selection> candidates = new ArrayList<>();
-		addBasicTasks(level, candidates);
-		addLegacyTasks(level, candidates);
+		return next(level, random, recent, allowPlayerInteraction, possible, null);
+	}
+
+	/**
+	 * @param possible whether a task can be done in the current arena (see TaskRequirements)
+	 * @param mix      how likely each difficulty tier is; null picks from the whole pool by task weight alone
+	 */
+	public static Selection next(ServerLevel level, Random random, Set<String> recent, boolean allowPlayerInteraction,
+			java.util.function.Predicate<String> possible, DifficultyMix mix) {
+		List<Selection> candidates = all(level);
 		if (!allowPlayerInteraction) {
 			candidates.removeIf(selection -> isPlayerTask(selection.id()));
 		}
@@ -41,7 +47,31 @@ public final class TaskFactory {
 		if (available.isEmpty()) {
 			available = candidates;
 		}
-		return TaskSelection.chooseWeighted(random, available);
+		if (mix == null) {
+			return TaskSelection.chooseWeighted(random, available);
+		}
+		// Pick a tier by the mix's percentages, then a task inside it by the usual weights. Tiers with no
+		// available task drop out and the others share their percentage.
+		java.util.Map<DifficultyMix.Tier, List<Selection>> byTier = new java.util.EnumMap<>(DifficultyMix.Tier.class);
+		for (Selection selection : available) {
+			DifficultyMix.Tier tier = DifficultyMix.Tier.of(selection.difficulty());
+			if (mix.share(tier) > 0) {
+				byTier.computeIfAbsent(tier, ignored -> new ArrayList<>()).add(selection);
+			}
+		}
+		if (byTier.isEmpty()) {
+			return TaskSelection.chooseWeighted(random, available);
+		}
+		DifficultyMix.Tier tier = TaskSelection.chooseWeighted(random, List.copyOf(byTier.keySet()), mix::share);
+		return TaskSelection.chooseWeighted(random, byTier.get(tier));
+	}
+
+	/** Every task in the pool, before arena, player-count, recency and difficulty filtering. */
+	static List<Selection> all(ServerLevel level) {
+		List<Selection> candidates = new ArrayList<>();
+		addBasicTasks(level, candidates);
+		addLegacyTasks(level, candidates);
+		return candidates;
 	}
 
 	/**
@@ -107,10 +137,12 @@ public final class TaskFactory {
 		for (StoneTaskCatalog.Entry entry : StoneTaskCatalog.entries()) {
 			String id = stoneTaskId(entry);
 			if (entry.mine()) {
-				candidates.add(new Selection(id + ":mine", new DigBlockTask(entry.block()), entry.rarityWeight(), "mine"));
+				candidates.add(new Selection(id + ":mine", new DigBlockTask(entry.block()), entry.rarityWeight(), "mine",
+					entry.difficulty()));
 			}
 			if (entry.place()) {
-				candidates.add(new Selection(id + ":place", new PlaceBlockTask(entry.block()), entry.rarityWeight(), "place"));
+				candidates.add(new Selection(id + ":place", new PlaceBlockTask(entry.block()), entry.rarityWeight(), "place",
+					entry.difficulty()));
 			}
 		}
 	}
@@ -119,7 +151,8 @@ public final class TaskFactory {
 		for (StoneTaskCatalog.Entry entry : StoneTaskCatalog.entries()) {
 			if (entry.craft()) {
 				candidates.add(new Selection(stoneTaskId(entry) + ":craft",
-					new CraftItemTask(entry.item(), entry.make().verb()), entry.rarityWeight(), "crafting"));
+					new CraftItemTask(entry.item(), entry.make().verb()), entry.rarityWeight(), "crafting",
+					entry.difficulty()));
 			}
 		}
 	}
@@ -440,10 +473,14 @@ public final class TaskFactory {
 			player -> player.getStats().getValue(type, stat)), 1.0, "movement"));
 	}
 
-	public record Selection(String id, MinuteRushTask task, double rarityWeight, String actionType)
-		implements TaskSelection.Weighted {
+	public record Selection(String id, MinuteRushTask task, double rarityWeight, String actionType,
+		TaskDifficulty difficulty) implements TaskSelection.Weighted {
 		public Selection(String id, MinuteRushTask task) {
 			this(id, task, 1.0, "interactive");
+		}
+
+		public Selection(String id, MinuteRushTask task, double rarityWeight, String actionType) {
+			this(id, task, rarityWeight, actionType, TaskDifficulty.of(id));
 		}
 
 		@Override

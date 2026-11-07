@@ -1,5 +1,7 @@
 package com.edwinc125.minuterush.config;
 
+import com.edwinc125.minuterush.task.MatchDifficulty;
+
 public record MinuteRushConfig(
 		int targetScore,
 		int roundDurationSeconds,
@@ -9,11 +11,12 @@ public record MinuteRushConfig(
 		int arenaChunkDepth,
 		int borderExpansionBlocksPerSecond,
 		int maxBorderSize,
-		int keepInventoryGraceSeconds) {
-	public static final MinuteRushConfig DEFAULT = new MinuteRushConfig(10, 60, 5, 5, 20, 20, 5, 1000, 5);
+		int keepInventoryGraceSeconds,
+		MatchDifficulty difficulty) {
+	public static final MinuteRushConfig DEFAULT = new MinuteRushConfig(10, 60);
 
 	public MinuteRushConfig(int targetScore, int roundDurationSeconds) {
-		this(targetScore, roundDurationSeconds, 5, 5, 20, 20, 5, 1000, 5);
+		this(targetScore, roundDurationSeconds, 5, 5, 20, 20, 5, 1000, 5, MatchDifficulty.PROGRESSIVE);
 	}
 
 	public MinuteRushConfig {
@@ -23,17 +26,26 @@ public record MinuteRushConfig(
 				|| keepInventoryGraceSeconds < 1) {
 			throw new IllegalArgumentException("Minute Rush settings must be positive");
 		}
+		if (difficulty == null) {
+			throw new IllegalArgumentException("Minute Rush difficulty must be set");
+		}
 	}
 
 	public MinuteRushConfig withTargetScore(int targetScore) {
 		return new MinuteRushConfig(targetScore, roundDurationSeconds, preGameCountdownSeconds,
 			interRoundBreakSeconds, arenaChunkWidth, arenaChunkDepth, borderExpansionBlocksPerSecond,
-			maxBorderSize, keepInventoryGraceSeconds);
+			maxBorderSize, keepInventoryGraceSeconds, difficulty);
 	}
 
 	public MinuteRushConfig withRoundDurationSeconds(int roundDurationSeconds) {
 		return new MinuteRushConfig(targetScore, roundDurationSeconds, preGameCountdownSeconds,
 			interRoundBreakSeconds, arenaChunkWidth, arenaChunkDepth, borderExpansionBlocksPerSecond,
-			maxBorderSize, keepInventoryGraceSeconds);
+			maxBorderSize, keepInventoryGraceSeconds, difficulty);
+	}
+
+	public MinuteRushConfig withDifficulty(MatchDifficulty difficulty) {
+		return new MinuteRushConfig(targetScore, roundDurationSeconds, preGameCountdownSeconds,
+			interRoundBreakSeconds, arenaChunkWidth, arenaChunkDepth, borderExpansionBlocksPerSecond,
+			maxBorderSize, keepInventoryGraceSeconds, difficulty);
 	}
 }
