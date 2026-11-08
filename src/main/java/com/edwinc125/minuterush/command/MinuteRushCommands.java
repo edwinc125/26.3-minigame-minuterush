@@ -16,16 +16,17 @@ public final class MinuteRushCommands {
 
 	public static void register(com.mojang.brigadier.CommandDispatcher<CommandSourceStack> dispatcher,
 			Supplier<MinuteRushGame> gameSupplier) {
+		// Anyone can use "config" (the settings book) and "status"; everything else needs an operator.
 		dispatcher.register(Commands.literal("minute-rush")
-			.requires(source -> source.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER))
-			.then(Commands.literal("start").executes(context -> execute(context.getSource(), gameSupplier, "start")))
-			.then(Commands.literal("solo-start")
+			.then(Commands.literal("start").requires(MinuteRushCommands::isOperator)
+				.executes(context -> execute(context.getSource(), gameSupplier, "start")))
+			.then(Commands.literal("solo-start").requires(MinuteRushCommands::isOperator)
 				.executes(context -> soloStart(context.getSource(), gameSupplier)))
-			.then(Commands.literal("solo-exit")
+			.then(Commands.literal("solo-exit").requires(MinuteRushCommands::isOperator)
 				.executes(context -> execute(context.getSource(), gameSupplier, "solo-exit")))
-			.then(Commands.literal("skip")
+			.then(Commands.literal("skip").requires(MinuteRushCommands::isOperator)
 				.executes(context -> execute(context.getSource(), gameSupplier, "skip")))
-			.then(Commands.literal("test")
+			.then(Commands.literal("test").requires(MinuteRushCommands::isOperator)
 				.then(Commands.literal("skip")
 					.executes(context -> testSkip(context.getSource(), gameSupplier)))
 				.then(Commands.argument("category", StringArgumentType.word())
@@ -33,56 +34,97 @@ public final class MinuteRushCommands {
 						java.util.List.of("movement", "crafting", "combat", "basic", "interactive"), builder))
 					.executes(context -> testStart(context.getSource(), gameSupplier,
 						StringArgumentType.getString(context, "category")))))
-			.then(Commands.literal("reset").executes(context -> execute(context.getSource(), gameSupplier, "reset")))
+			.then(Commands.literal("reset").requires(MinuteRushCommands::isOperator)
+				.executes(context -> execute(context.getSource(), gameSupplier, "reset")))
 			.then(Commands.literal("config")
+				.executes(context -> openBook(context.getSource(), gameSupplier))
 				.then(Commands.literal("score")
-					.then(Commands.argument("value", IntegerArgumentType.integer(1))
-						.executes(context -> configure(context.getSource(), gameSupplier, "score",
-							IntegerArgumentType.getInteger(context, "value")))))
+					.then(withBook(Commands.argument("value", IntegerArgumentType.integer(1)), (context, book) -> {
+						int value = IntegerArgumentType.getInteger(context, "value");
+						return change(context.getSource(), gameSupplier, book, "points to win", String.valueOf(value),
+							game -> game.setTargetScore(value));
+					})))
 				.then(Commands.literal("duration")
-					.then(Commands.argument("seconds", IntegerArgumentType.integer(1))
-						.executes(context -> configure(context.getSource(), gameSupplier, "duration",
-							IntegerArgumentType.getInteger(context, "seconds")))))
+					.then(withBook(Commands.argument("seconds", IntegerArgumentType.integer(1)), (context, book) -> {
+						int seconds = IntegerArgumentType.getInteger(context, "seconds");
+						return change(context.getSource(), gameSupplier, book, "time per round", seconds + "s",
+							game -> game.setRoundDurationSeconds(seconds));
+					})))
 				.then(Commands.literal("difficulty")
-					.then(Commands.argument("mode", StringArgumentType.word())
+					.then(withBook(Commands.argument("mode", StringArgumentType.word())
 						.suggests((context, builder) -> SharedSuggestionProvider.suggest(
-							java.util.Arrays.stream(MatchDifficulty.values()).map(MatchDifficulty::id), builder))
-						.executes(context -> configureDifficulty(context.getSource(), gameSupplier,
-							StringArgumentType.getString(context, "mode"))))))
-			.then(Commands.literal("status").requires(source -> true)
+							java.util.Arrays.stream(MatchDifficulty.values()).map(MatchDifficulty::id), builder)),
+						(context, book) -> {
+							String mode = StringArgumentType.getString(context, "mode");
+							MatchDifficulty difficulty = MatchDifficulty.parse(mode);
+							if (difficulty == null) {
+								context.getSource().sendFailure(Component.literal("Unknown difficulty \"" + mode
+									+ "\". Use easy, medium, hard or progressive."));
+								return 0;
+							}
+							return change(context.getSource(), gameSupplier, book, "difficulty", difficulty.id(),
+								game -> game.setDifficulty(difficulty));
+						})))
+				.then(Commands.literal("pvp")
+					.then(withBook(Commands.literal("on"), (context, book) -> change(context.getSource(),
+						gameSupplier, book, "PvP", "on", game -> game.setPvp(true))))
+					.then(withBook(Commands.literal("off"), (context, book) -> change(context.getSource(),
+						gameSupplier, book, "PvP", "off", game -> game.setPvp(false))))))
+			.then(Commands.literal("status")
 				.executes(context -> status(context.getSource(), gameSupplier))));
 		dispatcher.register(Commands.literal("voteskip")
 			.executes(context -> voteSkip(context.getSource(), gameSupplier)));
 	}
 
-	private static int configure(CommandSourceStack source, Supplier<MinuteRushGame> supplier, String setting, int value) {
+	private static boolean isOperator(CommandSourceStack source) {
+		return source.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER);
+	}
+
+	private interface SettingChange {
+		int run(com.mojang.brigadier.context.CommandContext<CommandSourceStack> context, boolean reopenBook)
+			throws com.mojang.brigadier.exceptions.CommandSyntaxException;
+	}
+
+	/** Makes the node run the change, and adds a trailing "book" (used by the book's buttons) that reopens the book. */
+	private static <T extends com.mojang.brigadier.builder.ArgumentBuilder<CommandSourceStack, T>> T withBook(
+			T node, SettingChange change) {
+		return node.executes(context -> change.run(context, false))
+			.then(Commands.literal("book").executes(context -> change.run(context, true)));
+	}
+
+	private static int openBook(CommandSourceStack source, Supplier<MinuteRushGame> supplier) {
 		MinuteRushGame game = supplier.get();
-		if (game == null) {
-			source.sendFailure(Component.literal("The server is not ready."));
+		if (game == null || source.getPlayer() == null) {
+			source.sendFailure(Component.literal("Run this command as a player in a world."));
 			return 0;
 		}
-		if (setting.equals("score")) {
-			game.setTargetScore(value);
-		} else {
-			game.setRoundDurationSeconds(value);
-		}
-		source.sendSuccess(() -> Component.literal("Updated " + setting + " to " + value + "."), true);
+		ConfigBook.open(source.getPlayer(), game.config(), isLocked(source, game));
 		return 1;
 	}
 
-	private static int configureDifficulty(CommandSourceStack source, Supplier<MinuteRushGame> supplier, String mode) {
+	/** Players who are not operators cannot change settings while a match is running. */
+	private static boolean isLocked(CommandSourceStack source, MinuteRushGame game) {
+		return game.isMatchInProgress() && !isOperator(source);
+	}
+
+	private static int change(CommandSourceStack source, Supplier<MinuteRushGame> supplier, boolean reopenBook,
+			String setting, String value, java.util.function.Consumer<MinuteRushGame> apply) {
 		MinuteRushGame game = supplier.get();
 		if (game == null) {
 			source.sendFailure(Component.literal("The server is not ready."));
 			return 0;
 		}
-		MatchDifficulty difficulty = MatchDifficulty.parse(mode);
-		if (difficulty == null) {
-			source.sendFailure(Component.literal("Unknown difficulty \"" + mode + "\". Use easy, medium, hard or progressive."));
+		if (isLocked(source, game)) {
+			source.sendFailure(Component.literal("Settings can't be changed during a match."));
 			return 0;
 		}
-		game.setDifficulty(difficulty);
-		source.sendSuccess(() -> Component.literal("Updated difficulty to " + difficulty.id() + "."), true);
+		apply.accept(game);
+		// Tell everyone, since any player can change settings.
+		source.getServer().getPlayerList().broadcastSystemMessage(
+			Component.literal(source.getTextName() + " set " + setting + " to " + value + "."), false);
+		if (reopenBook && source.getPlayer() != null) {
+			ConfigBook.open(source.getPlayer(), game.config(), isLocked(source, game));
+		}
 		return 1;
 	}
 

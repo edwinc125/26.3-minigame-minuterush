@@ -175,6 +175,10 @@ public final class MinuteRushMod implements ModInitializer {
 			}
 			return InteractionResult.PASS;
 		});
+		ServerLivingEntityEvents.ALLOW_DAMAGE.register((entity, source, amount) ->
+			game == null || !(entity instanceof ServerPlayer target)
+				|| !(source.getEntity() instanceof ServerPlayer attacker)
+				|| game.allowsPlayerDamage(target, attacker));
 		ServerLivingEntityEvents.AFTER_DAMAGE.register((entity, source, baseDamage, damageTaken, blocked) -> {
 			if (entity instanceof ServerPlayer player) {
 				if (source.is(DamageTypeTags.IS_FALL)) {

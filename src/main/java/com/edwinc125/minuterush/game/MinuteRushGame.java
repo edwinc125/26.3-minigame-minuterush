@@ -118,6 +118,26 @@ public final class MinuteRushGame {
 		config = config.withDifficulty(difficulty);
 	}
 
+	public void setPvp(boolean pvp) {
+		config = config.withPvp(pvp);
+	}
+
+	public MinuteRushConfig config() {
+		return config;
+	}
+
+	/**
+	 * Whether one match player may hurt another. With PvP off, players can only hurt each other while a task that
+	 * targets a player (hit, kill, hook, ...) is active. Outside a match, and for anyone not in it, vanilla rules apply.
+	 */
+	public boolean allowsPlayerDamage(ServerPlayer target, ServerPlayer attacker) {
+		if (config.pvp() || attacker == target || !isMatchInProgress()
+				|| !participants.contains(target.getUUID()) || !participants.contains(attacker.getUUID())) {
+			return true;
+		}
+		return state == MatchState.ROUND_ACTIVE && TaskFactory.isPlayerTask(currentTaskId);
+	}
+
 	public void playerJoined(ServerPlayer player) {
 		scores.putIfAbsent(player.getUUID(), 0);
 		if (!com.edwinc125.minuterush.task.TaskFactory.isPlayerTask(currentTaskId) || state != MatchState.ROUND_ACTIVE) {
@@ -136,7 +156,7 @@ public final class MinuteRushGame {
 		player.sendSystemMessage(Component.literal("Minute Rush: use /minute-rush start when everyone is ready."));
 	}
 
-	private boolean isMatchInProgress() {
+	public boolean isMatchInProgress() {
 		return state == MatchState.ROUND_ACTIVE || state == MatchState.COUNTDOWN
 			|| state == MatchState.PREPARING_ARENA || state == MatchState.PRE_GAME_COUNTDOWN
 			|| state == MatchState.INTERMISSION;
