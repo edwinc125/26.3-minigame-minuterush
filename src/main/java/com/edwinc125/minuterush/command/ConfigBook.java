@@ -2,8 +2,12 @@ package com.edwinc125.minuterush.command;
 
 import com.edwinc125.minuterush.config.MinuteRushConfig;
 import com.edwinc125.minuterush.task.MatchDifficulty;
+import com.google.gson.JsonPrimitive;
+import com.mojang.serialization.JsonOps;
 import java.util.List;
+import java.util.Optional;
 import net.minecraft.ChatFormatting;
+import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
@@ -11,6 +15,17 @@ import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.protocol.game.ClientboundOpenBookPacket;
 import net.minecraft.network.protocol.game.ClientboundSetPlayerInventoryPacket;
+import net.minecraft.server.dialog.ActionButton;
+import net.minecraft.server.dialog.CommonButtonData;
+import net.minecraft.server.dialog.CommonDialogData;
+import net.minecraft.server.dialog.Dialog;
+import net.minecraft.server.dialog.DialogAction;
+import net.minecraft.server.dialog.Input;
+import net.minecraft.server.dialog.NoticeDialog;
+import net.minecraft.server.dialog.action.CommandTemplate;
+import net.minecraft.server.dialog.action.ParsedTemplate;
+import net.minecraft.server.dialog.body.PlainMessage;
+import net.minecraft.server.dialog.input.TextInput;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.Filterable;
 import net.minecraft.world.InteractionHand;
@@ -26,6 +41,8 @@ public final class ConfigBook {
 	static final int[] POINT_OPTIONS = {6, 8, 10, 12, 15};
 	static final int[] SECOND_OPTIONS = {30, 45, 60, 90};
 	static final String COMMAND = "/minute-rush config";
+	/** The key of the number field in a "Custom..." dialog; its text replaces {@code $(value)} in the command. */
+	static final String CUSTOM_KEY = "value";
 
 	private static final int DIFFICULTY_PAGE = 2;
 	private static final int PVP_PAGE = 3;
@@ -107,7 +124,8 @@ public final class ConfigBook {
 		if (custom) {
 			page.append(option(config.targetScore() + " (custom)", true, locked, null, null));
 		}
-		page.append(customOption(locked, "score ", "Type any number of points in chat."));
+		page.append(customOption(locked, "Points to win", "Points", config.targetScore(), "score",
+			"First player to reach this many points wins the match."));
 		return page.append(footer());
 	}
 
@@ -122,6 +140,8 @@ public final class ConfigBook {
 		if (custom) {
 			page.append(option(config.roundDurationSeconds() + "s (custom)", true, locked, null, null));
 		}
+		page.append(customOption(locked, "Time per round", "Seconds", config.roundDurationSeconds(), "duration",
+			"How long each round lasts, in seconds."));
 		return page.append(footer());
 	}
 
@@ -149,15 +169,39 @@ public final class ConfigBook {
 			.withHoverEvent(new HoverEvent.ShowText(Component.literal(hover))));
 	}
 
-	/** A "Custom..." entry that fills in the chat box, since a book cannot take typed input. */
-	private static Component customOption(boolean locked, String args, String hover) {
+	/**
+	 * A "Custom..." entry that opens a dialog with a number field. A book cannot take typed input and ignores
+	 * suggest-command clicks, but it does open dialogs; the dialog's button runs the same command as the other
+	 * options with the typed number filled in, so the command does all validation.
+	 *
+	 * @param setting the command word after "/minute-rush config", e.g. "score"
+	 */
+	private static Component customOption(boolean locked, String title, String field, int current, String setting,
+			String help) {
 		if (locked) {
 			return Component.literal("○ Custom...\n").withStyle(ChatFormatting.GRAY);
 		}
 		return Component.literal("○ Custom...\n").withStyle(style -> style
 			.withColor(ChatFormatting.DARK_BLUE)
-			.withClickEvent(new ClickEvent.SuggestCommand(COMMAND + " " + args))
-			.withHoverEvent(new HoverEvent.ShowText(Component.literal(hover))));
+			.withClickEvent(new ClickEvent.ShowDialog(Holder.direct(customDialog(title, field, current, setting, help))))
+			.withHoverEvent(new HoverEvent.ShowText(Component.literal("Enter any number."))));
+	}
+
+	static Dialog customDialog(String title, String field, int current, String setting, String help) {
+		Input input = new Input(CUSTOM_KEY, new TextInput(100, Component.literal(field), true, String.valueOf(current),
+			4, Optional.empty()));
+		CommonDialogData common = new CommonDialogData(Component.literal(title), Optional.empty(), true, false,
+			DialogAction.CLOSE, List.of(new PlainMessage(Component.literal(help), 200)), List.of(input));
+		ParsedTemplate template = ParsedTemplate.CODEC
+			.parse(JsonOps.INSTANCE, new JsonPrimitive(customCommand(setting)))
+			.getOrThrow();
+		return new NoticeDialog(common, new ActionButton(new CommonButtonData(Component.literal("Set"), 100),
+			Optional.of(new CommandTemplate(template))));
+	}
+
+	/** The command template a "Custom..." dialog runs, e.g. "/minute-rush config score $(value) book". */
+	static String customCommand(String setting) {
+		return command(setting + " $(" + CUSTOM_KEY + ")");
 	}
 
 	private static Component footer() {
