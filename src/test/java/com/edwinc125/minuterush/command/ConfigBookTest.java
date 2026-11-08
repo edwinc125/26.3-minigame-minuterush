@@ -10,11 +10,14 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.ParseResults;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import net.minecraft.SharedConstants;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.Bootstrap;
+import net.minecraft.server.dialog.NoticeDialog;
+import net.minecraft.server.dialog.action.CommandTemplate;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -53,15 +56,15 @@ class ConfigBookTest {
 		String text = text(pages);
 		assertTrue(text.contains("● 7 (custom)"), text);
 		assertTrue(text.contains("● 75s (custom)"), text);
-		assertTrue(clicks(pages).stream().anyMatch(click -> click instanceof ClickEvent.SuggestCommand suggest
-			&& suggest.command().equals("/minute-rush config score ")));
+		assertEquals(List.of("/minute-rush config score 20 book", "/minute-rush config duration 20 book"),
+			dialogCommands(pages, "20"));
 	}
 
 	@Test
 	void lockedBookHasNoSettingButtons() {
 		List<Component> pages = ConfigBook.pages(MinuteRushConfig.DEFAULT.withDifficulty(MatchDifficulty.HARD), true);
 		assertEquals(List.of(), runCommands(pages));
-		assertFalse(clicks(pages).stream().anyMatch(click -> click instanceof ClickEvent.SuggestCommand));
+		assertEquals(List.of(), dialogCommands(pages, "20"));
 		assertTrue(text(pages).contains("Locked during a match."));
 	}
 
@@ -70,7 +73,9 @@ class ConfigBookTest {
 		CommandDispatcher<CommandSourceStack> dispatcher = new CommandDispatcher<>();
 		MinuteRushCommands.register(dispatcher, () -> null);
 		MinuteRushConfig config = MinuteRushConfig.DEFAULT.withPvp(false).withDifficulty(MatchDifficulty.EASY);
-		List<String> commands = new ArrayList<>(runCommands(ConfigBook.pages(config, false)));
+		List<Component> pages = ConfigBook.pages(config, false);
+		List<String> commands = new ArrayList<>(runCommands(pages));
+		commands.addAll(dialogCommands(pages, "25"));
 		commands.add("/minute-rush config");
 		commands.add("/minute-rush status");
 		for (String command : commands) {
@@ -85,6 +90,16 @@ class ConfigBookTest {
 		return clicks(pages).stream()
 			.filter(click -> click instanceof ClickEvent.RunCommand)
 			.map(click -> ((ClickEvent.RunCommand) click).command())
+			.toList();
+	}
+
+	/** The commands the "Custom..." dialogs run when the player types {@code typed} and presses the button. */
+	private static List<String> dialogCommands(List<Component> pages, String typed) {
+		return clicks(pages).stream()
+			.filter(click -> click instanceof ClickEvent.ShowDialog)
+			.map(click -> (NoticeDialog) ((ClickEvent.ShowDialog) click).dialog().value())
+			.map(dialog -> ((CommandTemplate) dialog.action().action().orElseThrow()).template()
+				.instantiate(Map.of(ConfigBook.CUSTOM_KEY, typed)))
 			.toList();
 	}
 
