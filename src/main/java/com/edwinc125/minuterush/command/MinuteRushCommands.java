@@ -98,13 +98,13 @@ public final class MinuteRushCommands {
 			source.sendFailure(Component.literal("Run this command as a player in a world."));
 			return 0;
 		}
-		ConfigBook.open(source.getPlayer(), game.config(), isLocked(source, game));
+		ConfigBook.open(source.getPlayer(), game.config(), isLocked(game));
 		return 1;
 	}
 
-	/** Players who are not operators cannot change settings while a match is running. */
-	private static boolean isLocked(CommandSourceStack source, MinuteRushGame game) {
-		return game.isMatchInProgress() && !isOperator(source);
+	/** Nobody, operators included, can change settings while a match is running (issue #39). */
+	private static boolean isLocked(MinuteRushGame game) {
+		return game.isMatchInProgress();
 	}
 
 	private static int change(CommandSourceStack source, Supplier<MinuteRushGame> supplier, boolean reopenBook,
@@ -114,7 +114,7 @@ public final class MinuteRushCommands {
 			source.sendFailure(Component.literal("The server is not ready."));
 			return 0;
 		}
-		if (isLocked(source, game)) {
+		if (isLocked(game)) {
 			source.sendFailure(Component.literal("Settings can't be changed during a match."));
 			return 0;
 		}
@@ -123,7 +123,7 @@ public final class MinuteRushCommands {
 		source.getServer().getPlayerList().broadcastSystemMessage(
 			Component.literal(source.getTextName() + " set " + setting + " to " + value + "."), false);
 		if (reopenBook && source.getPlayer() != null) {
-			ConfigBook.open(source.getPlayer(), game.config(), isLocked(source, game));
+			ConfigBook.open(source.getPlayer(), game.config(), isLocked(game));
 		}
 		return 1;
 	}

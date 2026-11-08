@@ -66,7 +66,7 @@ public final class ConfigBook {
 		player.connection.send(new ClientboundSetPlayerInventoryPacket(slot, player.getInventory().getSelectedItem().copy()));
 	}
 
-	/** @param locked the viewer cannot change settings right now (a match is running and they are not an operator) */
+	/** @param locked the viewer cannot change settings right now (a match is running) */
 	static List<Component> pages(MinuteRushConfig config, boolean locked) {
 		return List.of(overview(config, locked), difficultyPage(config, locked), pvpPage(config, locked),
 			pointsPage(config, locked), timePage(config, locked));

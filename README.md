@@ -18,7 +18,7 @@ Anyone can use:
 - `/minute-rush status` - inspect match state
 - `/voteskip` - vote to skip the current round
 
-Settings changes are announced to everyone. Only operators can change settings while a match is running.
+Settings changes are announced to everyone. Settings are locked for everyone, operators included, while a match is running; the book still opens to show them.
 
 Operators can also use:
 
