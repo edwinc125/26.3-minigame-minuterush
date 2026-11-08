@@ -620,6 +620,7 @@ public final class MinuteRushGame {
 
 	/** Awards a point to every player who completed the task this tick. */
 	private void winRound(List<ServerPlayer> winners) {
+		difficultyProgress.taskCompleted();
 		List<String> names = new java.util.ArrayList<>();
 		List<String> scoreParts = new java.util.ArrayList<>();
 		List<String> matchWinners = new java.util.ArrayList<>();

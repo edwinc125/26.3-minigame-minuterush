@@ -5,7 +5,7 @@ package com.edwinc125.minuterush.task;
  * a tier with no task available in the arena drops out and the remaining tiers share its chance.
  */
 public record DifficultyMix(double simpleOrEasy, double medium, double hard) {
-	/** Used for the first 3N tasks of every match so players can gather resources first. */
+	/** Used in every match for 5 minutes or until 3N tasks are completed, so players can gather resources first. */
 	public static final DifficultyMix WARM_UP = new DifficultyMix(1, 0, 0);
 
 	public DifficultyMix {
