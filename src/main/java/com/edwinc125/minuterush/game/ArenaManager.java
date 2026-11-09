@@ -72,6 +72,11 @@ public final class ArenaManager {
 	private int cleanupDelayTicks;
 	private boolean cleanupTeleported;
 	private final List<ServerPlayer> cleanupPlayers = new ArrayList<>();
+	/**
+	 * Match players who were offline when the match ended, with the game mode to restore. Cleanup only reaches
+	 * online players, so these are sent back to the lobby when they reconnect. Survives resetPreparation.
+	 */
+	private final Map<UUID, GameType> pendingLobbyReturns = new HashMap<>();
 	/** Biome sample spacing in blocks; 16 gives ~4000 samples for a 1000-block border. */
 	private static final int SURVEY_STEP = 16;
 	private volatile ArenaSurvey<Holder<Biome>> survey;
@@ -471,11 +476,44 @@ public final class ArenaManager {
 		for (ServerPlayer player : cleanupPlayers) {
 			player.setRespawnPosition(lobbyRespawn, true);
 		}
+		for (ServerPlayer participant : participants) {
+			if (server.getPlayerList().getPlayer(participant.getUUID()) == null) {
+				pendingLobbyReturns.put(participant.getUUID(), GameType.SURVIVAL);
+			}
+		}
+		for (UUID spectatorId : spectators) {
+			if (server.getPlayerList().getPlayer(spectatorId) == null) {
+				pendingLobbyReturns.put(spectatorId, originalGameModes.getOrDefault(spectatorId, GameType.SURVIVAL));
+			}
+		}
 		clearTaskBlocks();
 		release();
 		cleanupActive = true;
 		cleanupTeleported = false;
 		cleanupDelayTicks = 1;
+	}
+
+	/**
+	 * A player who was offline when the last match ended reconnected: they log back in wherever they left the
+	 * arena, so give them the same lobby cleanup everyone else got. Returns whether anything was done.
+	 */
+	public boolean returnToLobbyIfPending(ServerPlayer player) {
+		GameType gameMode = pendingLobbyReturns.remove(player.getUUID());
+		if (gameMode == null) {
+			return false;
+		}
+		ServerLevel level = server.overworld();
+		BlockPos lobby = server.getRespawnData().pos();
+		// Cross-dimension teleport, in case they left the match from the Nether or the End.
+		player.teleportTo(level, lobby.getX() + 0.5, lobby.getY(), lobby.getZ() + 0.5,
+			Set.of(), 0.0f, 0.0f, true);
+		player.setRespawnPosition(new RespawnConfig(
+			LevelData.RespawnData.of(level.dimension(), lobby, 0.0f, 0.0f), true), true);
+		player.getInventory().clearContent();
+		player.removeAllEffects();
+		player.setNoGravity(false);
+		player.setGameMode(gameMode);
+		return true;
 	}
 
 	public void resetPreparation() {

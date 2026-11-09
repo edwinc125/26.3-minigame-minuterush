@@ -142,6 +142,8 @@ public final class MinuteRushGame {
 	}
 
 	public void playerJoined(ServerPlayer player) {
+		// Before anything else, so a new match's spectator setup sees their lobby game mode, not the old arena's.
+		arena.returnToLobbyIfPending(player);
 		scores.putIfAbsent(player.getUUID(), 0);
 		if (!com.edwinc125.minuterush.task.TaskFactory.isPlayerTask(currentTaskId) || state != MatchState.ROUND_ACTIVE) {
 			// They logged out while glowing from a player task that has since ended.
