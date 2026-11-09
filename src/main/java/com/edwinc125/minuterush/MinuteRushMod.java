@@ -79,6 +79,9 @@ public final class MinuteRushMod implements ModInitializer {
 			if (game == null || world.isClientSide() || !(player instanceof ServerPlayer serverPlayer)) {
 				return InteractionResult.PASS;
 			}
+			if (game.handleLobbyItemUse(serverPlayer, hand)) {
+				return InteractionResult.SUCCESS;
+			}
 			ItemStack heldBefore = serverPlayer.getItemInHand(hand).copy();
 			String block = blockId(serverPlayer, hitResult.getBlockPos());
 			EntityTaskProgress.record(serverPlayer.getUUID(), "block:use:" + block);
@@ -236,6 +239,9 @@ public final class MinuteRushMod implements ModInitializer {
 		});
 		UseItemCallback.EVENT.register((player, world, hand) -> {
 			if (!world.isClientSide() && player instanceof ServerPlayer serverPlayer) {
+				if (game != null && game.handleLobbyItemUse(serverPlayer, hand)) {
+					return InteractionResult.SUCCESS;
+				}
 				ItemStack heldBefore = serverPlayer.getItemInHand(hand).copy();
 				Item item = heldBefore.getItem();
 				if (isBucket(item)) {

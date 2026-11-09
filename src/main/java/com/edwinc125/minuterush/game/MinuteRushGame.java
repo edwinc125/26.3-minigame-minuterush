@@ -33,6 +33,8 @@ public final class MinuteRushGame {
 	private MinuteRushConfig config;
 	private final Map<UUID, Integer> scores = new HashMap<>();
 	private final java.util.Set<UUID> participants = new java.util.HashSet<>();
+	private final java.util.Set<UUID> lobbyReady = new java.util.HashSet<>();
+	private final java.util.Set<UUID> lobbySpectators = new java.util.HashSet<>();
 	private final Deque<String> recentTaskIds = new ArrayDeque<>();
 	/** Decides how likely each task difficulty is as the match goes on. */
 	private final com.edwinc125.minuterush.task.DifficultyProgress difficultyProgress =
@@ -59,6 +61,7 @@ public final class MinuteRushGame {
 	/** Seconds players stay in the arena after the match is won, before being sent back to the lobby. */
 	private static final int MATCH_END_DELAY_SECONDS = 5;
 	private int matchOverTicks;
+	private int lobbyCountdownTicks;
 	private int lastIntermissionSecond = -1;
 	private String currentTaskId;
 	private String intermissionMessage;
@@ -153,6 +156,9 @@ public final class MinuteRushGame {
 			player.sendSystemMessage(Component.literal("A match is in progress; you are now a spectator."));
 			return;
 		}
+		lobbyReady.remove(player.getUUID());
+		LobbyItems.apply(player, false, lobbySpectators.contains(player.getUUID()));
+		ScoreboardDisplay.refresh(server, this);
 		player.sendSystemMessage(Component.literal("Minute Rush: use /minute-rush start when everyone is ready."));
 	}
 
@@ -188,6 +194,19 @@ public final class MinuteRushGame {
 		if (state == MatchState.ROUND_ACTIVE) {
 			checkSkipVotes();
 		}
+		if (state == MatchState.IDLE) {
+			lobbyReady.remove(player.getUUID());
+			lobbySpectators.remove(player.getUUID());
+			recalculateLobbyCountdown(false);
+			ScoreboardDisplay.refresh(server, this);
+		}
+	}
+
+	private void playSound(ServerPlayer player, net.minecraft.sounds.SoundEvent sound, float volume, float pitch) {
+		Holder<net.minecraft.sounds.SoundEvent> holder = BuiltInRegistries.SOUND_EVENT.wrapAsHolder(sound);
+		player.connection.send(new ClientboundSoundPacket(
+			holder, SoundSource.PLAYERS, player.getX(), player.getY(), player.getZ(),
+			volume, pitch, random.nextLong()));
 	}
 
 	public void tick() {
@@ -197,6 +216,9 @@ public final class MinuteRushGame {
 				bossbar.removeAllPlayers();
 				bossbar.setVisible(false);
 				ScoreboardDisplay.clear(server);
+				lobbyReady.clear();
+				lobbySpectators.clear();
+				refreshLobbyPlayers();
 			}
 			return;
 		}
@@ -204,6 +226,10 @@ public final class MinuteRushGame {
 		arena.tickModifiers();
 		if (state == MatchState.MATCH_OVER) {
 			tickMatchOver();
+			return;
+		}
+		if (state == MatchState.IDLE) {
+			tickLobby();
 			return;
 		}
 		if (state == MatchState.PREPARING_ARENA) {
@@ -281,20 +307,27 @@ public final class MinuteRushGame {
 		}
 		participants.clear();
 		recentTaskIds.clear();
-		for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+		for (ServerPlayer player : lobbyPlayers()) {
 			participants.add(player.getUUID());
+		}
+		if (participants.isEmpty()) {
+			return "No players are participating in this match.";
 		}
 		return beginMatch("Minute Rush started!");
 	}
 
 	public String startSolo(ServerPlayer player) {
 		clearCategoryTest();
+		lobbyReady.clear();
+		lobbySpectators.clear();
+		lobbyCountdownTicks = 0;
 		participants.clear();
 		participants.add(player.getUUID());
 		return beginMatch("Singleplayer test mode started. Use /minute-rush solo-exit to stop.");
 	}
 
 	private String beginMatch(String message) {
+		lobbyCountdownTicks = 0;
 		scores.replaceAll((id, score) -> 0);
 		recentTaskIds.clear();
 		difficultyProgress.reset();
@@ -303,7 +336,8 @@ public final class MinuteRushGame {
 		currentTaskId = null;
 		state = MatchState.PREPARING_ARENA;
 		title("Generating Arena...", "Please wait");
-		arena.beginPreparation(activePlayers().stream().toList(), config);
+		arena.beginPreparation(activePlayers().stream().toList(), lobbySpectatorPlayers(), config);
+		lobbyReady.clear();
 		ScoreboardDisplay.refresh(server, this);
 		updatePresentation();
 		return message;
@@ -323,12 +357,16 @@ public final class MinuteRushGame {
 		currentTaskId = null;
 		skipVote.clear();
 		participants.clear();
+		lobbyReady.clear();
+		lobbySpectators.clear();
+		lobbyCountdownTicks = 0;
 		scores.replaceAll((id, score) -> 0);
 		server.getPlayerList().broadcastSystemMessage(Component.literal(message), false);
 		if (!cleanupPending) {
 			ScoreboardDisplay.clear(server);
 			bossbar.removeAllPlayers();
 			bossbar.setVisible(false);
+			refreshLobbyPlayers();
 		}
 		return message;
 	}
@@ -716,6 +754,160 @@ public final class MinuteRushGame {
 			.withStyle(ChatFormatting.YELLOW, ChatFormatting.BOLD));
 		bossbar.setProgress(arena.totalChunks() == 0 ? 0.0f
 			: Math.min(1.0f, arena.generatedChunks() / (float) arena.totalChunks()));
+	}
+
+	public boolean handleLobbyItemUse(ServerPlayer player, net.minecraft.world.InteractionHand hand) {
+		if (state != MatchState.IDLE) {
+			return false;
+		}
+		LobbyItems.Action action = LobbyItems.action(player.getItemInHand(hand));
+		if (action == LobbyItems.Action.NONE) {
+			return false;
+		}
+		switch (action) {
+			case READY -> {
+				if (lobbySpectators.contains(player.getUUID())) return true;
+				if (lobbyReady.add(player.getUUID())) {
+					broadcastLobbyMessage(player.getGameProfile().name() + " is ready! ("
+						+ readyLobbyCount() + "/" + lobbyPlayers().size() + ")");
+					recalculateLobbyCountdown(false);
+				}
+			}
+			case UNREADY -> {
+				if (lobbyReady.remove(player.getUUID())) {
+					broadcastLobbyMessage(player.getGameProfile().name() + " is no longer ready. ("
+						+ readyLobbyCount() + "/" + lobbyPlayers().size() + ")");
+					recalculateLobbyCountdown(true);
+				}
+			}
+			case SPECTATE -> {
+				lobbyReady.remove(player.getUUID());
+				if (lobbySpectators.add(player.getUUID())) {
+					broadcastLobbyMessage(player.getGameProfile().name() + " wants to sit this game out!");
+					recalculateLobbyCountdown(false);
+				}
+			}
+			case JOIN -> {
+				if (lobbySpectators.remove(player.getUUID())) {
+					lobbyReady.remove(player.getUUID());
+					broadcastLobbyMessage(player.getGameProfile().name()
+						+ " has changed their mind and wanted to join this game!");
+					recalculateLobbyCountdown(false);
+				}
+			}
+			default -> {
+			}
+		}
+		LobbyItems.apply(player, lobbyReady.contains(player.getUUID()), lobbySpectators.contains(player.getUUID()));
+		ScoreboardDisplay.refresh(server, this);
+		playSound(player, SoundEvents.UI_BUTTON_CLICK.value(), 1.0f, 1.0f);
+		return true;
+	}
+
+	public boolean isLobbySpectator(ServerPlayer player) {
+		return state == MatchState.IDLE && lobbySpectators.contains(player.getUUID());
+	}
+
+	public boolean isLobby() {
+		return state == MatchState.IDLE;
+	}
+
+	public List<String> lobbyPlayerNames() {
+		return lobbyPlayers().stream().map(player -> player.getGameProfile().name()).toList();
+	}
+
+	public List<String> lobbySpectatorNames() {
+		return lobbySpectatorPlayers().stream().map(player -> player.getGameProfile().name()).toList();
+	}
+
+	private void tickLobby() {
+		refreshLobbyPlayers();
+		removeDroppedLobbyItems();
+		if (lobbyCountdownTicks > 0) {
+			if (--lobbyCountdownTicks <= 0) {
+				start();
+				return;
+			}
+			updateLobbyPresentation();
+		} else {
+			bossbar.removeAllPlayers();
+			bossbar.setVisible(false);
+			ScoreboardDisplay.refresh(server, this);
+		}
+	}
+
+	private void removeDroppedLobbyItems() {
+		for (net.minecraft.server.level.ServerLevel level : server.getAllLevels()) {
+			for (net.minecraft.world.entity.Entity entity : level.getAllEntities()) {
+				if (entity instanceof net.minecraft.world.entity.item.ItemEntity item
+						&& LobbyItems.isControl(item.getItem())) {
+					item.discard();
+				}
+			}
+		}
+	}
+
+	private void updateLobbyPresentation() {
+		for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+			bossbar.addPlayer(player);
+		}
+		bossbar.setVisible(lobbyCountdownTicks > 0);
+		bossbar.setName(Component.literal(LobbyCountdownPolicy.bossbarText(lobbyCountdownTicks))
+			.withStyle(ChatFormatting.YELLOW, ChatFormatting.BOLD));
+		bossbar.setProgress(Math.max(0.0f, Math.min(1.0f,
+			lobbyCountdownTicks / (float) LobbyCountdownPolicy.INITIAL_TICKS)));
+		ScoreboardDisplay.refresh(server, this);
+	}
+
+	private void recalculateLobbyCountdown(boolean readyRemoved) {
+		int active = lobbyPlayers().size();
+		int ready = readyLobbyCount();
+		if (active == 0 || ready == 0) {
+			lobbyCountdownTicks = 0;
+			return;
+		}
+		if (lobbyCountdownTicks == 0) {
+			lobbyCountdownTicks = LobbyCountdownPolicy.INITIAL_TICKS;
+		}
+		if (readyRemoved && ready < LobbyCountdownPolicy.requiredReady(active)) {
+			lobbyCountdownTicks += LobbyCountdownPolicy.EXTENSION_TICKS;
+		} else if (ready == active) {
+			lobbyCountdownTicks = Math.min(lobbyCountdownTicks, LobbyCountdownPolicy.ALL_READY_TICKS);
+		} else if (ready >= LobbyCountdownPolicy.requiredReady(active)) {
+			lobbyCountdownTicks = Math.min(lobbyCountdownTicks, LobbyCountdownPolicy.MAJORITY_TICKS);
+		}
+		updateLobbyPresentation();
+	}
+
+	private int readyLobbyCount() {
+		Set<UUID> active = lobbyPlayers().stream().map(ServerPlayer::getUUID).collect(java.util.stream.Collectors.toSet());
+		return (int) lobbyReady.stream().filter(active::contains).count();
+	}
+
+	private void refreshLobbyPlayers() {
+		if (state != MatchState.IDLE) {
+			return;
+		}
+		for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+			LobbyItems.apply(player, lobbyReady.contains(player.getUUID()), lobbySpectators.contains(player.getUUID()));
+		}
+		ScoreboardDisplay.refresh(server, this);
+	}
+
+	private void broadcastLobbyMessage(String message) {
+		server.getPlayerList().broadcastSystemMessage(Component.literal(message), false);
+	}
+
+	private List<ServerPlayer> lobbyPlayers() {
+		return server.getPlayerList().getPlayers().stream()
+			.filter(player -> !lobbySpectators.contains(player.getUUID()))
+			.toList();
+	}
+
+	private List<ServerPlayer> lobbySpectatorPlayers() {
+		return server.getPlayerList().getPlayers().stream()
+			.filter(player -> lobbySpectators.contains(player.getUUID()))
+			.toList();
 	}
 
 	private java.util.Collection<ServerPlayer> activePlayers() {

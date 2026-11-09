@@ -29,6 +29,10 @@ public final class ScoreboardDisplay {
 				ObjectiveCriteria.RenderType.INTEGER, false, null);
 			scoreboard.setDisplayObjective(DisplaySlot.SIDEBAR, objective);
 		}
+		if (game.isLobby()) {
+			refreshLobby(scoreboard, objective, game);
+			return;
+		}
 		List<ServerPlayer> listed = server.getPlayerList().getPlayers().stream()
 			.filter(player -> shouldList(game.isParticipant(player), player.isSpectator()))
 			.toList();
@@ -36,6 +40,7 @@ public final class ScoreboardDisplay {
 		for (ServerPlayer player : listed) {
 			listedNames.add(ScoreHolder.fromGameProfile(player.getGameProfile()).getScoreboardName());
 		}
+
 		List<String> owners = new ArrayList<>();
 		for (var entry : scoreboard.listPlayerScores(objective)) {
 			owners.add(entry.owner());
@@ -49,6 +54,26 @@ public final class ScoreboardDisplay {
 		for (ServerPlayer player : listed) {
 			scoreboard.getOrCreatePlayerScore(ScoreHolder.fromGameProfile(player.getGameProfile()), objective)
 				.set(game.score(player.getUUID()));
+		}
+	}
+
+	private static void refreshLobby(ServerScoreboard scoreboard, Objective objective, MinuteRushGame game) {
+		Set<String> listedNames = new HashSet<>();
+		List<String> entries = new ArrayList<>();
+		entries.add("§aPlayers:");
+		entries.addAll(game.lobbyPlayerNames().stream().map(name -> "§f" + name).toList());
+		entries.add("§eSpectators:");
+		entries.addAll(game.lobbySpectatorNames().stream().map(name -> "§7" + name).toList());
+		listedNames.addAll(entries);
+
+		List<String> owners = scoreboard.listPlayerScores(objective).stream()
+			.map(entry -> entry.owner()).toList();
+		for (String owner : entriesToReset(owners, listedNames)) {
+			scoreboard.resetSinglePlayerScore(ScoreHolder.forNameOnly(owner), objective);
+		}
+		int score = entries.size();
+		for (String entry : entries) {
+			scoreboard.getOrCreatePlayerScore(ScoreHolder.forNameOnly(entry), objective).set(score--);
 		}
 	}
 
