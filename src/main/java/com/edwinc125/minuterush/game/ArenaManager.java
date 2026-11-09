@@ -98,9 +98,19 @@ public final class ArenaManager {
 	}
 
 	public void beginPreparation(List<ServerPlayer> players, MinuteRushConfig config) {
+		beginPreparation(players, List.of(), config);
+	}
+
+	public void beginPreparation(List<ServerPlayer> players, List<ServerPlayer> spectatorPlayers,
+			MinuteRushConfig config) {
 		resetPreparation();
 		surveyRadius = config.maxBorderSize() / 2;
 		participants.addAll(players);
+		for (ServerPlayer spectator : spectatorPlayers) {
+			originalGameModes.putIfAbsent(spectator.getUUID(), spectator.gameMode());
+			spectators.add(spectator.getUUID());
+			spectator.setGameMode(GameType.SPECTATOR);
+		}
 		ServerLevel level = server.overworld();
 		BlockPos spawn = chooseArenaCenter(level);
 		centerX = spawn.getX();
