@@ -36,16 +36,30 @@ public final class TaskRequirements {
 
 	/** Returns the requirement for a task id, or null if the task is possible anywhere. */
 	public static Requirement of(String taskId) {
-		return switch (subject(taskId)) {
-			case "jungle-log", "jungle-planks", "bamboo" -> biome(tag(BiomeTags.IS_JUNGLE));
-			case "acacia-log", "acacia-planks" -> biome(tag(BiomeTags.IS_SAVANNA));
-			case "dark-oak-log", "dark-oak-planks" -> biome(keys(Biomes.DARK_FOREST));
-			case "mangrove-log", "mud" -> biome(keys(Biomes.MANGROVE_SWAMP));
-			case "cherry-log" -> biome(keys(Biomes.CHERRY_GROVE));
-			case "spruce-log", "spruce-planks" ->
+		String subject = subject(taskId);
+		if (subject.startsWith("craft-wood-")) {
+			String wood = subject.substring("craft-wood-".length()).split(":")[0];
+			subject = wood + "-log";
+		} else if (subject.startsWith("stripped-")) {
+			subject = subject.substring("stripped-".length());
+		}
+		return switch (subject) {
+			// The arena survey covers the overworld; do not assume Nether wood is reachable there.
+			case "crimson-log", "warped-log", "crimson-stem", "crimson-hyphae", "warped-stem", "warped-hyphae" ->
+				new Requirement(List.of(), false);
+			case "death-medium-pricked" -> biome(CACTUS.or(tag(BiomeTags.IS_TAIGA)));
+			case "jungle-log", "jungle-wood", "jungle-planks", "bamboo", "bamboo-log", "bamboo-block", "bamboo-planks" -> biome(tag(BiomeTags.IS_JUNGLE));
+			case "acacia-log", "acacia-wood", "acacia-planks" -> biome(tag(BiomeTags.IS_SAVANNA));
+			case "dark-oak-log", "dark-oak-wood", "dark-oak-planks" -> biome(keys(Biomes.DARK_FOREST));
+			case "mangrove-log", "mangrove-wood", "mangrove-planks", "mud" -> biome(keys(Biomes.MANGROVE_SWAMP));
+			case "cherry-log", "cherry-wood", "cherry-planks" -> biome(keys(Biomes.CHERRY_GROVE));
+			case "pale-oak-log", "pale-oak-wood", "pale-oak-planks" -> biome(keys(Biomes.PALE_GARDEN));
+			case "poplar-log", "poplar-wood", "poplar-planks", "poplar-sapling", "red-poplar-leaves",
+				"orange-poplar-leaves", "yellow-poplar-leaves", "shelf-mushroom" -> biome(keys(Biomes.DAPPLED_FOREST));
+			case "spruce-log", "spruce-wood", "spruce-planks" ->
 				biome(tag(BiomeTags.IS_TAIGA).or(keys(Biomes.GROVE, Biomes.WINDSWEPT_FOREST)));
 			case "sweet-berry-damage" -> biome(tag(BiomeTags.IS_TAIGA));
-			case "birch-log", "birch-planks" -> biome(keys(Biomes.FOREST, Biomes.FLOWER_FOREST,
+			case "birch-log", "birch-wood", "birch-planks" -> biome(keys(Biomes.FOREST, Biomes.FLOWER_FOREST,
 				Biomes.BIRCH_FOREST, Biomes.OLD_GROWTH_BIRCH_FOREST));
 			case "red-sand" -> biome(tag(BiomeTags.IS_BADLANDS));
 			case "cactus" -> biome(tag(BiomeTags.IS_BADLANDS).or(keys(Biomes.DESERT)));

@@ -7,6 +7,9 @@ import net.minecraft.core.QuartPos;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.ChunkGeneratorStructureState;
 import net.minecraft.world.level.levelgen.structure.StructureSet;
+import net.minecraft.world.level.levelgen.structure.BuiltinStructures;
+import net.minecraft.world.level.levelgen.structure.Structure;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.levelgen.structure.placement.RandomSpreadStructurePlacement;
 import net.minecraft.tags.StructureTags;
 import net.minecraft.util.Util;
@@ -165,8 +168,8 @@ public final class ArenaManager {
 
 	/**
 	 * Surveys the largest border the arena can reach, entirely off the server thread: samples surface biomes
-	 * every SURVEY_STEP blocks, then predicts villages from their placement rules. Both only evaluate seed-based
-	 * worldgen math (the same the worldgen worker threads run), so no chunks are generated or loaded.
+	 * every SURVEY_STEP blocks, then predicts villages and selected underground structures from their placement
+	 * rules. This evaluates seed-based worldgen without generating or loading chunks.
 	 */
 	private void startSurvey(ServerLevel level) {
 		ArenaSurvey<Holder<Biome>> next = new ArenaSurvey<>();
@@ -182,6 +185,7 @@ public final class ArenaManager {
 			.map(Holder::value)
 			.filter(set -> set.structures().stream().anyMatch(entry -> entry.structure().is(StructureTags.VILLAGE)))
 			.toList();
+		List<StructureSet> allSets = structureState.possibleStructureSets().stream().map(Holder::value).toList();
 		// High above the terrain, so the sampled biome is the surface biome rather than a cave biome.
 		int quartY = QuartPos.fromBlock(256);
 		CompletableFuture.runAsync(() -> {
@@ -196,10 +200,43 @@ public final class ArenaManager {
 			}
 			next.markBiomesScanned();
 			findNearestVillage(next, villageSets, structureState, resolver, cx, cz, radius, quartY);
+			findUndergroundStructure(next, allSets, structureState, resolver, cx, cz, radius,
+				"ancient-city", BuiltinStructures.ANCIENT_CITY, -48);
+			findUndergroundStructure(next, allSets, structureState, resolver, cx, cz, radius,
+				"trial-chambers", BuiltinStructures.TRIAL_CHAMBERS, -24);
+			next.markStructuresScanned();
 		}, Util.backgroundExecutor()).exceptionally(error -> {
 			com.mojang.logging.LogUtils.getLogger().warn("Minute Rush arena survey failed", error);
 			return null;
 		});
+	}
+
+	// Candidate positions and a representative underground biome are predictions, not proof of generated structures.
+	private static void findUndergroundStructure(ArenaSurvey<Holder<Biome>> survey, List<StructureSet> sets,
+			ChunkGeneratorStructureState state, BiomeResolver resolver, int cx, int cz, int radius,
+			String id, ResourceKey<Structure> key, int y) {
+		for (StructureSet set : sets) {
+			if (!(set.placement() instanceof RandomSpreadStructurePlacement spread)
+					|| set.structures().stream().noneMatch(entry -> entry.structure().is(key))) continue;
+			int spacing = spread.spacing();
+			int minX = Math.floorDiv((cx - radius) >> 4, spacing);
+			int maxX = Math.floorDiv((cx + radius) >> 4, spacing);
+			int minZ = Math.floorDiv((cz - radius) >> 4, spacing);
+			int maxZ = Math.floorDiv((cz + radius) >> 4, spacing);
+			for (int x = minX; x <= maxX; x++) {
+				for (int z = minZ; z <= maxZ; z++) {
+					ChunkPos chunk = spread.getPotentialStructureChunk(state.getLevelSeed(), x * spacing, z * spacing);
+					int dx = chunk.getMiddleBlockX() - cx, dz = chunk.getMiddleBlockZ() - cz;
+					if (ArenaSurvey.distance(dx, dz) > radius || !spread.isStructureChunk(state, chunk.x(), chunk.z())) continue;
+					Holder<Biome> biome = resolver.getNoiseBiome(QuartPos.fromBlock(chunk.getMiddleBlockX()),
+						QuartPos.fromBlock(y), QuartPos.fromBlock(chunk.getMiddleBlockZ()));
+					if (set.structures().stream().anyMatch(entry -> entry.structure().is(key)
+							&& entry.structure().value().biomes().contains(biome))) {
+						survey.recordStructure(id, dx, dz);
+					}
+				}
+			}
+		}
 	}
 
 	/**
@@ -256,6 +293,12 @@ public final class ArenaManager {
 	 * Tasks with requirements are unavailable until the survey has finished.
 	 */
 	public boolean taskAvailable(String taskId) {
+		if ("death-hard-warden".equals(taskId) || "death-hard-breeze".equals(taskId)) {
+			ArenaSurvey<Holder<Biome>> current = survey;
+			String structure = taskId.endsWith("warden") ? "ancient-city" : "trial-chambers";
+			return current != null && current.hasStructureWithin(structure,
+				(int) (server.overworld().getWorldBorder().getSize() / 2));
+		}
 		TaskRequirements.Requirement requirement = TaskRequirements.of(taskId);
 		if (requirement == null) {
 			return true;

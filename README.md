@@ -26,11 +26,17 @@ Operators can also use:
 - `/minute-rush solo-start` - start an isolated one-player testing match in a singleplayer world
 - `/minute-rush solo-exit` - stop singleplayer testing and reset its score
 - `/minute-rush skip` - skip the current round (useful while testing)
+- `/minute-rush test <basic|movement|crafting|combat|interactive|death|quickfire|maths>` - cycle through a task category
+- `/minute-rush test skip` - skip the current category-test task
 - `/minute-rush reset` - reset the match and scores
 
 The task catalog now covers placing, collecting, mining, jumping, traveling, sprinting, swimming, walking, repeated jumps, hold-item actions, player interaction, mob interaction, and interactable-block interaction. The game avoids the previous three task kinds when the pool has alternatives, so the same task family does not repeat immediately. Singleplayer deliberately excludes the player-player task because it has no second participant; the other task families use the same round lifecycle as multiplayer. Placement tasks no longer require coordinates: place the requested block anywhere, and the game detects the placement from your item-use stat. Tasks use per-player baselines so pre-existing inventory/stat progress does not falsely complete a round. Settings default to progressive difficulty, PvP on, 10 points and 60 seconds, and can be changed from the settings book or the config commands.
 
 Task selection combines each catalog rarity with its action multiplier: crafting 1.50, movement/exploration 1.40, interactive/combat 1.25, mine/place/collect 0.80, and hold 0.40. Collection and mining tasks no longer grant starter items; players must obtain the required resources normally.
+
+Quickfire and maths answers are sent as ordinary chat messages. Generated letter and alphanumeric targets ignore letter case; maths division accepts equivalent decimal forms, not fractions. Death tasks enable keep-inventory while active and for the configured grace period afterward.
+
+Wood crafting includes both any-type and specific-type tasks. Poplar and shelf mushroom tasks require a Dappled Forest in the arena; pale oak requires a Pale Garden. The overworld arena survey cannot establish Nether access, so specific crimson and warped tasks remain available in category tests but are excluded from normal selection. The warden and breeze tasks require a predicted ancient city or trial chambers inside the border, respectively. As with village prediction, the seed-based survey does not guarantee that the structure actually generated; the warden check is conservative and does not detect every deep-dark area.
 
 Each task also has a difficulty based on what it needs: **Simple** (no items, e.g. walking or hitting a mob), **Easy** (wood, stone, copper and common drops), **Medium** (iron, gold, redstone, string, and rare drops such as apples) and **Hard** (diamonds and emeralds).
 

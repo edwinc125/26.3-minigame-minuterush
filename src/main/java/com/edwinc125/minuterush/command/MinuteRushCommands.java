@@ -31,7 +31,8 @@ public final class MinuteRushCommands {
 					.executes(context -> testSkip(context.getSource(), gameSupplier)))
 				.then(Commands.argument("category", StringArgumentType.word())
 					.suggests((context, builder) -> SharedSuggestionProvider.suggest(
-						java.util.List.of("movement", "crafting", "combat", "basic", "interactive"), builder))
+						java.util.List.of("movement", "crafting", "combat", "basic", "interactive",
+							"death", "quickfire", "maths"), builder))
 					.executes(context -> testStart(context.getSource(), gameSupplier,
 						StringArgumentType.getString(context, "category")))))
 			.then(Commands.literal("reset").requires(MinuteRushCommands::isOperator)

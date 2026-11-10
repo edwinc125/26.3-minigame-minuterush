@@ -19,6 +19,8 @@ public final class ArenaSurvey<B> {
 	private volatile boolean biomesScanned;
 	private volatile int villageDistance = NONE;
 	private volatile boolean villageSearched;
+	private final Map<String, Integer> structures = new HashMap<>();
+	private volatile boolean structuresScanned;
 
 	/** Records that {@code biome} occurs at offset (dx, dz) from the centre. Background scan only. */
 	public void addBiomeSample(B biome, int dx, int dz) {
@@ -60,6 +62,18 @@ public final class ArenaSurvey<B> {
 	/** False until the village search has run, so village tasks are not offered on a guess. */
 	public boolean hasVillageWithin(int halfSize) {
 		return villageSearched && villageDistance <= halfSize;
+	}
+
+	void recordStructure(String id, int dx, int dz) {
+		structures.merge(id, distance(dx, dz), Math::min);
+	}
+
+	void markStructuresScanned() {
+		structuresScanned = true;
+	}
+
+	boolean hasStructureWithin(String id, int halfSize) {
+		return structuresScanned && structures.getOrDefault(id, NONE) <= halfSize;
 	}
 
 	static int distance(int dx, int dz) {

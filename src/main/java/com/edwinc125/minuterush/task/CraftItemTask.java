@@ -11,6 +11,7 @@ import net.minecraft.world.item.Item;
 public final class CraftItemTask implements MinuteRushTask {
 	private final Item item;
 	private final String verb;
+	private final String noun;
 	private final Map<UUID, Integer> baselines = new HashMap<>();
 
 	public CraftItemTask(Item item) {
@@ -19,13 +20,22 @@ public final class CraftItemTask implements MinuteRushTask {
 
 	/** {@code verb} is shown to players, e.g. "Smelt" for furnace output (which also counts as crafted). */
 	public CraftItemTask(Item item, String verb) {
+		this(item, verb, null);
+	}
+
+	public CraftItemTask(Item item, String verb, String noun) {
 		this.item = item;
 		this.verb = verb;
+		this.noun = noun;
 	}
 
 	@Override
 	public String description() {
-		return verb + " a " + TaskText.itemName(item).toLowerCase(java.util.Locale.ROOT);
+		if (noun == null) return verb + " a " + TaskText.itemName(item).toLowerCase(java.util.Locale.ROOT);
+		String name = noun;
+		if (name.endsWith(" stairs")) return verb + " " + name;
+		String article = !name.isEmpty() && "aeiou".indexOf(name.charAt(0)) >= 0 ? "an" : "a";
+		return verb + " " + article + " " + name;
 	}
 
 	@Override
