@@ -3,6 +3,7 @@ package com.edwinc125.minuterush.task;
 import java.util.Set;
 import java.util.random.RandomGenerator;
 import java.util.List;
+import java.util.function.Function;
 
 public final class TaskSelection {
 	private TaskSelection() {}
@@ -23,6 +24,17 @@ public final class TaskSelection {
 
 	public static boolean isRecent(String id, Set<String> recent) {
 		return recent.contains(id);
+	}
+
+	/** Prefer uncompleted, cooled-down tasks; only relax restrictions when necessary. */
+	public static <T> List<T> eligible(List<T> candidates, Function<T, String> id,
+			Set<String> completed, Set<String> recent) {
+		List<T> uncompleted = candidates.stream().filter(candidate -> !completed.contains(id.apply(candidate))).toList();
+		List<T> preferred = uncompleted.stream().filter(candidate -> !recent.contains(id.apply(candidate))).toList();
+		if (!preferred.isEmpty()) return preferred;
+		if (!uncompleted.isEmpty()) return uncompleted;
+		List<T> cooledDown = candidates.stream().filter(candidate -> !recent.contains(id.apply(candidate))).toList();
+		return cooledDown.isEmpty() ? candidates : cooledDown;
 	}
 
 	public static <T extends Weighted> T chooseWeighted(RandomGenerator random, List<T> candidates) {

@@ -36,17 +36,17 @@ public final class TaskFactory {
 	 */
 	public static Selection next(ServerLevel level, Random random, Set<String> recent, boolean allowPlayerInteraction,
 			java.util.function.Predicate<String> possible, DifficultyMix mix) {
+		return next(level, random, recent, Set.of(), allowPlayerInteraction, possible, mix);
+	}
+
+	public static Selection next(ServerLevel level, Random random, Set<String> recent, Set<String> completed,
+			boolean allowPlayerInteraction, java.util.function.Predicate<String> possible, DifficultyMix mix) {
 		List<Selection> candidates = all(level, random);
 		if (!allowPlayerInteraction) {
 			candidates.removeIf(selection -> isPlayerTask(selection.id()));
 		}
 		candidates.removeIf(selection -> !possible.test(selection.id()));
-		List<Selection> available = candidates.stream()
-			.filter(selection -> !recent.contains(selection.id()))
-			.toList();
-		if (available.isEmpty()) {
-			available = candidates;
-		}
+		List<Selection> available = TaskSelection.eligible(candidates, Selection::id, completed, recent);
 		if (mix == null) {
 			return TaskSelection.chooseWeighted(random, available);
 		}
