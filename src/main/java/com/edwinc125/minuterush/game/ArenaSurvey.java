@@ -36,6 +36,10 @@ public final class ArenaSurvey<B> {
 		return biomesScanned;
 	}
 
+	public int biomeDiversity() {
+		return biomesScanned ? nearestBiome.size() : 0;
+	}
+
 	public void setVillageOffset(int dx, int dz) {
 		villageDistance = distance(dx, dz);
 		villageSearched = true;

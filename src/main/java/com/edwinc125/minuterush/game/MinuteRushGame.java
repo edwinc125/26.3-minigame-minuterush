@@ -266,6 +266,10 @@ public final class MinuteRushGame {
 		}
 		if (state == MatchState.PREPARING_ARENA) {
 			arena.tickPreparation();
+			if (arena.preparationFailure() != null) {
+				reset(arena.preparationFailure());
+				return;
+			}
 			updatePreparationPresentation();
 			if (arena.ready()) {
 				arena.placeParticipants(config);
@@ -380,6 +384,7 @@ public final class MinuteRushGame {
 		currentTaskId = null;
 		state = MatchState.PREPARING_ARENA;
 		title("Generating Arena...", "Please wait");
+		server.getPlayerList().broadcastSystemMessage(Component.literal(config.matchStartSummary()), false);
 		arena.beginPreparation(activePlayers().stream().toList(), lobbySpectatorPlayers(), config);
 		lobbyReady.clear();
 		ScoreboardDisplay.refresh(server, this);

@@ -518,12 +518,12 @@ public final class TaskFactory {
 			player -> player.getStats().getValue(Stats.CUSTOM, Stats.BOAT_ONE_CM)), 1.0, "movement"));
 		candidates.add(new Selection("jump-5", new StatTask("Jump 5 times", 5,
 			player -> player.getStats().getValue(Stats.CUSTOM, Stats.JUMP)), 1.0, "movement"));
-		candidates.add(new Selection("reach-y-100", new YLevelTask(true, 100), 0.75, "movement"));
-		candidates.add(new Selection("reach-y-50", new YLevelTask(false, 50), 0.75, "movement"));
-		candidates.add(new Selection("reach-y-120", new YLevelTask(true, 120), 0.5, "movement"));
-		candidates.add(new Selection("reach-y-140", new YLevelTask(true, 140), 0.25, "movement"));
-		candidates.add(new Selection("reach-y-20", new YLevelTask(false, 20), 0.5, "movement"));
-		candidates.add(new Selection("reach-y-0", new YLevelTask(false, 0), 0.25, "movement"));
+		candidates.add(new Selection("reach-y-100", new YLevelTask(100), 0.75, "movement"));
+		candidates.add(new Selection("reach-y-50", new YLevelTask(50), 0.75, "movement"));
+		candidates.add(new Selection("reach-y-120", new YLevelTask(120), 0.5, "movement"));
+		candidates.add(new Selection("reach-y-140", new YLevelTask(140), 0.25, "movement"));
+		candidates.add(new Selection("reach-y-20", new YLevelTask(20), 0.5, "movement"));
+		candidates.add(new Selection("reach-y-0", new YLevelTask(0), 0.25, "movement"));
 		candidates.add(new Selection("fall-water", new WaterLandingTask(), 0.75, "movement"));
 	}
 

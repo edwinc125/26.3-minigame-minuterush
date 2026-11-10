@@ -20,6 +20,7 @@ Anyone can use:
 - `/voteskip` - vote to skip the current round
 
 Settings changes are announced to everyone. Settings are locked for everyone, operators included, while a match is running; the book still opens to show them.
+At match initialization, everyone is also told the selected difficulty, PvP setting, points target and round duration.
 
 Operators can also use:
 
@@ -30,7 +31,7 @@ Operators can also use:
 - `/minute-rush test <basic|movement|crafting|combat|interactive|death|quickfire|maths>` - cycle through a task category
 - `/minute-rush test skip` - skip the current category-test task
 
-The task catalog covers placing, collecting, mining, jumping, traveling, sprinting, swimming, walking, repeated jumps, hold-item actions, player interaction, mob interaction, and interactable-block interaction. Completed task IDs are excluded for the match, and skipped or timed-out tasks wait for five other tasks before returning. If the possible task pool is exhausted, the game first relaxes the cooldown for uncompleted tasks; only when all possible tasks are completed can completed tasks repeat. Singleplayer deliberately excludes the player-player task because it has no second participant; the other task families use the same round lifecycle as multiplayer. Placement tasks no longer require coordinates: place the requested block anywhere, and the game detects the placement from your item-use stat. Tasks use per-player baselines so pre-existing inventory/stat progress does not falsely complete a round. Settings default to progressive difficulty, PvP on, 10 points and 60 seconds, and can be changed from the settings book or the config commands.
+The task catalog covers placing, collecting, mining, jumping, traveling, sprinting, swimming, walking, repeated jumps, hold-item actions, player interaction, mob interaction, and interactable-block interaction. Reach-Y tasks require entering the exact target Y level (the floored player coordinate); players already at that level must leave and re-enter it. Completed task IDs are excluded for the match, and skipped or timed-out tasks wait for five other tasks before returning. If the possible task pool is exhausted, the game first relaxes the cooldown for uncompleted tasks; only when all possible tasks are completed can completed tasks repeat. Singleplayer deliberately excludes the player-player task because it has no second participant; the other task families use the same round lifecycle as multiplayer. Placement tasks no longer require coordinates: place the requested block anywhere, and the game detects the placement from your item-use stat. Tasks use per-player baselines so pre-existing inventory/stat progress does not falsely complete a round. Settings default to progressive difficulty, PvP on, 10 points and 60 seconds, and can be changed from the settings book or the config commands.
 
 If all match participants disconnect, the match and world ticks pause until a participant rejoins. Scores, task progress and inventory are retained; spectators cannot keep a match running by themselves. This pause does not persist the match across a server shutdown or crash.
 
@@ -39,6 +40,8 @@ Task selection combines each catalog rarity with its action multiplier: crafting
 Quickfire and maths answers are sent as ordinary chat messages. Generated letter and alphanumeric targets ignore letter case; maths division accepts equivalent decimal forms, not fractions. Death tasks enable keep-inventory while active and for the configured grace period afterward.
 
 Wood crafting includes both any-type and specific-type tasks. Poplar and shelf mushroom tasks require a Dappled Forest in the arena; pale oak requires a Pale Garden. The overworld arena survey cannot establish Nether access, so specific crimson and warped tasks remain available in category tests but are excluded from normal selection. The warden and breeze tasks require a predicted ancient city or trial chambers inside the border, respectively. As with village prediction, the seed-based survey does not guarantee that the structure actually generated; the warden check is conservative and does not detect every deep-dark area.
+
+When preparing a match, the mod surveys up to five candidate arena locations and selects the highest-scoring one. Locations with more than half their sampled surface underwater are rejected; the rest are scored equally on biome diversity, predicted structures, and the proportion of land. If four or more of the five candidates score below 53/100, the pool is re-evaluated once.
 
 Each task also has a difficulty based on what it needs: **Simple** (no items, e.g. walking or hitting a mob; aqua bossbar text), **Easy** (wood, stone, copper and common drops; green), **Medium** (iron, gold, redstone, string, and rare drops such as apples; yellow) and **Hard** (diamonds and emeralds; red).
 

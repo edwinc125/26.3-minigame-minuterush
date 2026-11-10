@@ -7,30 +7,27 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 
 public final class YLevelTask implements MinuteRushTask {
-	private final boolean atLeast;
 	private final int level;
-	private final Map<UUID, Double> starts = new HashMap<>();
+	private final Map<UUID, YLevelProgress> progress = new HashMap<>();
 
-	public YLevelTask(boolean atLeast, int level) {
-		this.atLeast = atLeast;
+	public YLevelTask(int level) {
 		this.level = level;
 	}
 
 	@Override
 	public String description() {
-		return (atLeast ? "Reach Y " : "Reach Y ") + (atLeast ? ">=" : "<=") + level;
+		return "Reach Y = " + level;
 	}
 
 	@Override
 	public void begin(ServerPlayer player) {
-		starts.put(player.getUUID(), player.getY());
+		progress.put(player.getUUID(), new YLevelProgress(level, player.getY()));
 		player.sendSystemMessage(Component.literal(description()).withStyle(net.minecraft.ChatFormatting.BLUE));
 	}
 
 	@Override
 	public boolean isComplete(ServerPlayer player) {
-		double start = starts.getOrDefault(player.getUUID(), player.getY());
-		return atLeast ? start < level && player.getY() >= level
-			: start > level && player.getY() <= level;
+		return progress.computeIfAbsent(player.getUUID(),
+			ignored -> new YLevelProgress(level, player.getY())).update(player.getY());
 	}
 }
