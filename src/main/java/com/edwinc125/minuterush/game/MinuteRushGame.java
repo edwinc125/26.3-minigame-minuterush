@@ -3,14 +3,14 @@ package com.edwinc125.minuterush.game;
 import com.edwinc125.minuterush.config.MinuteRushConfig;
 import com.edwinc125.minuterush.task.MinuteRushTask;
 import com.edwinc125.minuterush.task.TaskFactory;
+import com.edwinc125.minuterush.task.TaskDifficulty;
+import com.edwinc125.minuterush.task.TaskHistory;
 import com.edwinc125.minuterush.task.ChatTask;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.List;
 import java.util.Random;
 import java.util.UUID;
-import java.util.ArrayDeque;
-import java.util.Deque;
 import java.util.Set;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
@@ -36,7 +36,8 @@ public final class MinuteRushGame {
 	private final java.util.Set<UUID> participants = new java.util.HashSet<>();
 	private final java.util.Set<UUID> lobbyReady = new java.util.HashSet<>();
 	private final java.util.Set<UUID> lobbySpectators = new java.util.HashSet<>();
-	private final Deque<String> recentTaskIds = new ArrayDeque<>();
+	private final TaskHistory taskHistory = new TaskHistory();
+	private final Set<UUID> taskStarted = new java.util.HashSet<>();
 	/** Decides how likely each task difficulty is as the match goes on. */
 	private final com.edwinc125.minuterush.task.DifficultyProgress difficultyProgress =
 		new com.edwinc125.minuterush.task.DifficultyProgress();
@@ -45,6 +46,9 @@ public final class MinuteRushGame {
 	private final Map<UUID, String> previousStandingBlocks = new HashMap<>();
 	private final Random random = new Random();
 	private final SkipVote skipVote = new SkipVote();
+	private final ResetVote resetVote = new ResetVote();
+	private final EmptyMatchPause emptyMatchPause = new EmptyMatchPause();
+	private boolean checkResetVoteAfterDisconnect;
 	/** Players whose glowing tag was turned on by a player task, so only those are turned off again. */
 	private final Set<UUID> glowTagged = new java.util.HashSet<>();
 	public static final String VOTE_RECORDED = "Vote recorded.";
@@ -65,6 +69,7 @@ public final class MinuteRushGame {
 	private int lobbyCountdownTicks;
 	private int lastIntermissionSecond = -1;
 	private String currentTaskId;
+	private TaskDifficulty currentTaskDifficulty;
 	private String intermissionMessage;
 	private boolean cleanupPending;
 	private final ServerBossEvent bossbar = new ServerBossEvent(
@@ -152,6 +157,7 @@ public final class MinuteRushGame {
 		}
 		if (state != MatchState.IDLE && state != MatchState.MATCH_OVER) {
 			if (participants.contains(player.getUUID())) {
+				resumeAfterEmptyMatch();
 				rejoinMatch(player);
 				return;
 			}
@@ -175,9 +181,11 @@ public final class MinuteRushGame {
 	private void rejoinMatch(ServerPlayer player) {
 		arena.rejoinParticipant(player);
 		if (state == MatchState.ROUND_ACTIVE && task != null) {
-			// Re-sends the prompt and sets their progress baseline. Without it, a task that started while
-			// they were offline would compare lifetime stats (e.g. all jumps ever) and complete instantly.
-			task.begin(player);
+			if (taskStarted.add(player.getUUID())) {
+				task.begin(player);
+			} else {
+				player.sendSystemMessage(Component.literal(task.description()).withStyle(ChatFormatting.YELLOW));
+			}
 		}
 		player.sendSystemMessage(Component.literal("Welcome back! You have rejoined the match."));
 		ScoreboardDisplay.refresh(server, this);
@@ -187,21 +195,34 @@ public final class MinuteRushGame {
 		if (isCategoryTest(player)) {
 			clearCategoryTest();
 		}
-		// Participants stay in the match while offline so they can rejoin; only reset once nobody is left.
-		// The leaving player may still be in the player list at this point, so exclude them explicitly.
-		if (isMatchInProgress() && participants.contains(player.getUUID())
-				&& activePlayers().stream().allMatch(other -> other.getUUID().equals(player.getUUID()))) {
-			reset("Not enough players remain; match reset.");
+		List<UUID> remaining = eligibleVoters().stream().filter(id -> !id.equals(player.getUUID())).toList();
+		resetVote.remove(player.getUUID());
+		checkResetVoteAfterDisconnect = resetVote.count() > 0;
+		if (isMatchInProgress() && participants.contains(player.getUUID()) && remaining.isEmpty()) {
+			pauseForEmptyMatch();
 		}
 		skipVote.remove(player.getUUID());
 		if (state == MatchState.ROUND_ACTIVE) {
-			checkSkipVotes();
+			if (skipVote.passes(remaining)) skipCurrentRound("Vote passed: task skipped.");
 		}
+
 		if (state == MatchState.IDLE) {
 			lobbyReady.remove(player.getUUID());
 			lobbySpectators.remove(player.getUUID());
 			recalculateLobbyCountdown(false);
 			ScoreboardDisplay.refresh(server, this);
+		}
+	}
+
+	private void pauseForEmptyMatch() {
+		if (emptyMatchPause.pause(server.tickRateManager().isFrozen())) {
+			server.tickRateManager().setFrozen(true);
+		}
+	}
+
+	private void resumeAfterEmptyMatch() {
+		if (emptyMatchPause.resume()) {
+			server.tickRateManager().setFrozen(false);
 		}
 	}
 
@@ -225,6 +246,14 @@ public final class MinuteRushGame {
 			}
 			return;
 		}
+		if (checkResetVoteAfterDisconnect) {
+			checkResetVoteAfterDisconnect = false;
+			if (resetVote.passes(eligibleVoters())) {
+				reset("Vote passed: match reset.");
+				return;
+			}
+		}
+		if (emptyMatchPause.isPaused()) return;
 		tickCategoryTest();
 		arena.tickModifiers();
 		if (state == MatchState.MATCH_OVER) {
@@ -312,7 +341,7 @@ public final class MinuteRushGame {
 			return "A match is already in progress.";
 		}
 		participants.clear();
-		recentTaskIds.clear();
+		taskHistory.clear();
 		for (ServerPlayer player : lobbyPlayers()) {
 			participants.add(player.getUUID());
 		}
@@ -323,6 +352,12 @@ public final class MinuteRushGame {
 	}
 
 	public String startSolo(ServerPlayer player) {
+		if (state == MatchState.MATCH_OVER) {
+			return "The match is ending; try again once everyone is back in the lobby.";
+		}
+		if (state != MatchState.IDLE) {
+			return "A match is already in progress.";
+		}
 		clearCategoryTest();
 		lobbyReady.clear();
 		lobbySpectators.clear();
@@ -335,7 +370,10 @@ public final class MinuteRushGame {
 	private String beginMatch(String message) {
 		lobbyCountdownTicks = 0;
 		scores.replaceAll((id, score) -> 0);
-		recentTaskIds.clear();
+		taskHistory.clear();
+		taskStarted.clear();
+		resetVote.clear();
+		checkResetVoteAfterDisconnect = false;
 		difficultyProgress.reset();
 		matchTicks = 0;
 		intermissionTicks = 0;
@@ -350,18 +388,23 @@ public final class MinuteRushGame {
 	}
 
 	public String reset(String message) {
+		resumeAfterEmptyMatch();
 		clearCategoryTest();
 		clearPlayerInteractionGlow();
 		arena.restoreLobbyState();
 		cleanupPending = arena.cleanupActive();
 		state = MatchState.IDLE;
 		task = null;
-		recentTaskIds.clear();
+		taskHistory.clear();
+		taskStarted.clear();
 		ticksRemaining = 0;
 		countdownTicks = 0;
 		intermissionTicks = 0;
 		currentTaskId = null;
+		currentTaskDifficulty = null;
 		skipVote.clear();
+		resetVote.clear();
+		checkResetVoteAfterDisconnect = false;
 		participants.clear();
 		lobbyReady.clear();
 		lobbySpectators.clear();
@@ -390,6 +433,7 @@ public final class MinuteRushGame {
 		if (state != MatchState.ROUND_ACTIVE) {
 			return "There is no active task to vote on.";
 		}
+
 		List<UUID> eligible = eligibleVoters();
 		int needed = SkipVote.required(eligible.size());
 		return switch (skipVote.vote(player.getUUID(), eligible)) {
@@ -408,17 +452,37 @@ public final class MinuteRushGame {
 		};
 	}
 
+	public String voteReset(ServerPlayer player) {
+		if (!isMatchInProgress() && state != MatchState.MATCH_OVER) {
+			return "There is no match to reset.";
+		}
+		List<UUID> eligible = eligibleVoters();
+		return switch (resetVote.vote(player.getUUID(), eligible)) {
+			case NOT_ELIGIBLE -> "Only connected match participants can vote to reset.";
+			case ALREADY_VOTED -> "You already voted to reset (" + resetVote.count() + "/" + eligible.size() + ").";
+			case ACCEPTED -> {
+				server.getPlayerList().broadcastSystemMessage(Component.literal(
+					player.getGameProfile().name() + " voted to reset the match (" + resetVote.count()
+						+ "/" + eligible.size() + "). ")
+					.append(Component.literal("[Vote to reset]").withStyle(style -> style
+						.withColor(ChatFormatting.YELLOW)
+						.withClickEvent(new ClickEvent.RunCommand("/minute-rush reset"))
+						.withHoverEvent(new HoverEvent.ShowText(Component.literal("Click to vote to reset the match"))))),
+					false);
+				yield VOTE_RECORDED;
+			}
+			case PASSED -> {
+				reset("Vote passed: match reset.");
+				yield VOTE_RECORDED;
+			}
+		};
+	}
+
 	private static Component voteSkipButton() {
 		return Component.literal("[Vote to skip]").withStyle(style -> style
 			.withColor(ChatFormatting.YELLOW)
 			.withClickEvent(new ClickEvent.RunCommand("/voteskip"))
 			.withHoverEvent(new HoverEvent.ShowText(Component.literal("Click to vote to skip this task"))));
-	}
-
-	private void checkSkipVotes() {
-		if (skipVote.passes(eligibleVoters())) {
-			skipCurrentRound("Vote passed: task skipped.");
-		}
 	}
 
 	private List<UUID> eligibleVoters() {
@@ -469,7 +533,9 @@ public final class MinuteRushGame {
 
 	public String status() {
 		String mode = participants.size() == 1 ? "singleplayer test" : "multiplayer";
-		return "State: " + state + " (" + mode + "), target score: " + config.targetScore() + ", round seconds: " + config.roundDurationSeconds() + ", difficulty: " + difficultyDescription();
+		String paused = emptyMatchPause.isPaused() ? " (paused: no participants online)" : "";
+		return "State: " + state + paused + " (" + mode + "), target score: " + config.targetScore()
+			+ ", round seconds: " + config.roundDurationSeconds() + ", difficulty: " + difficultyDescription();
 	}
 
 	private String difficultyDescription() {
@@ -483,28 +549,31 @@ public final class MinuteRushGame {
 
 	private void startRound() {
 		if (state != MatchState.ROUND_ACTIVE) return;
-		TaskFactory.Selection selection = TaskFactory.next(server.overworld(), random, Set.copyOf(recentTaskIds),
+		TaskFactory.Selection selection = TaskFactory.next(server.overworld(), random, taskHistory.recent(),
+			taskHistory.completed(),
 			activePlayers().size() > 1, arena::taskAvailable,
 			// N counts everyone in the match, including anyone briefly disconnected (they can rejoin). Counting only
 			// online players would let one dropped connection end the warm-up early, with no way back.
 			difficultyProgress.next(config.difficulty(), participants.size(), matchTicks));
 		task = selection.task();
 		currentTaskId = selection.id();
+		currentTaskDifficulty = selection.difficulty();
 		if (task instanceof com.edwinc125.minuterush.task.DeathTask) {
 			arena.enableKeepInventory(config.keepInventoryGraceSeconds());
 		}
 		skipVote.clear();
-		recentTaskIds.addLast(selection.id());
-		while (recentTaskIds.size() > 3) {
-			recentTaskIds.removeFirst();
-		}
+		taskHistory.selected(selection.id());
+		taskStarted.clear();
 
 		ticksRemaining = config.roundDurationSeconds() * 20;
 		server.getPlayerList().broadcastSystemMessage(Component.literal("New round: " + task.description() + " ")
 			.append(voteSkipButton()), false);
 		title("NEW TASK", task.description());
 		playSound(SoundEvents.NOTE_BLOCK_PLING.value(), 1.0f, 1.2f);
-		for (ServerPlayer player : activePlayers()) task.begin(player);
+		for (ServerPlayer player : activePlayers()) {
+			task.begin(player);
+			taskStarted.add(player.getUUID());
+		}
 		for (ServerPlayer player : activePlayers()) {
 			previousStandingBlocks.put(player.getUUID(), standingBlock(player));
 		}
@@ -653,7 +722,7 @@ public final class MinuteRushGame {
 			|| state == MatchState.MATCH_OVER);
 		if (state == MatchState.ROUND_ACTIVE && ticksRemaining > 0) {
 			bossbar.setName(Component.literal(task.description() + "  |  " + timeScore() + "s")
-				.withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD));
+				.withStyle(taskColor(currentTaskDifficulty), ChatFormatting.BOLD));
 			bossbar.setProgress(Math.max(0.0f, Math.min(1.0f,
 				(float) ticksRemaining / (config.roundDurationSeconds() * 20.0f))));
 		} else if (state == MatchState.COUNTDOWN || state == MatchState.PRE_GAME_COUNTDOWN) {
@@ -672,7 +741,17 @@ public final class MinuteRushGame {
 			bossbar.setProgress(Math.max(0.0f, Math.min(1.0f,
 				matchOverTicks / (float) (MATCH_END_DELAY_SECONDS * 20))));
 		}
+
 		ScoreboardDisplay.refresh(server, this);
+	}
+
+	static ChatFormatting taskColor(TaskDifficulty difficulty) {
+		return switch (difficulty) {
+			case SIMPLE -> ChatFormatting.AQUA;
+			case EASY -> ChatFormatting.GREEN;
+			case MEDIUM -> ChatFormatting.YELLOW;
+			case HARD -> ChatFormatting.RED;
+		};
 	}
 
 	private void tickMatchOver() {
@@ -688,6 +767,7 @@ public final class MinuteRushGame {
 	/** Awards a point to every player who completed the task this tick. */
 	private void winRound(List<ServerPlayer> winners) {
 		difficultyProgress.taskCompleted();
+		taskHistory.completed(currentTaskId);
 		List<String> names = new java.util.ArrayList<>();
 		List<String> scoreParts = new java.util.ArrayList<>();
 		List<String> matchWinners = new java.util.ArrayList<>();

@@ -50,6 +50,7 @@ import net.minecraft.server.level.ServerPlayer.RespawnConfig;
 public final class ArenaManager {
 	private final MinecraftServer server;
 	private final Map<UUID, BlockPos> frozenPositions = new HashMap<>();
+	private final Map<UUID, BlockPos> pendingInitialPlacements = new HashMap<>();
 	private final Map<UUID, GameType> originalGameModes = new HashMap<>();
 	private final Set<UUID> spectators = new HashSet<>();
 	private final List<ServerPlayer> participants = new ArrayList<>();
@@ -329,11 +330,12 @@ public final class ArenaManager {
 				position = new BlockPos(centerX, 80, centerZ);
 			}
 			frozenPositions.put(player.getUUID(), position);
-			resetForMatch(player);
-			player.teleportTo(position.getX() + 0.5, position.getY(), position.getZ() + 0.5);
-			player.setRespawnPosition(new RespawnConfig(
-				LevelData.RespawnData.of(level.dimension(), position, 0.0f, 0.0f), true), true);
-			player.setGameMode(GameType.SURVIVAL);
+			ServerPlayer online = server.getPlayerList().getPlayer(player.getUUID());
+			if (online == null) {
+				pendingInitialPlacements.put(player.getUUID(), position);
+			} else {
+				placeParticipant(online, position);
+			}
 		}
 		for (UUID spectatorId : spectators) {
 			ServerPlayer spectator = server.getPlayerList().getPlayer(spectatorId);
@@ -344,6 +346,16 @@ public final class ArenaManager {
 		// 26.x uses world clocks with time markers, so let the vanilla command move the overworld clock.
 		server.getCommands().performPrefixedCommand(
 			server.createCommandSourceStack().withSuppressedOutput(), "time set day");
+	}
+
+	private void placeParticipant(ServerPlayer player, BlockPos position) {
+		ServerLevel level = server.overworld();
+		resetForMatch(player);
+		player.teleportTo(level, position.getX() + 0.5, position.getY(), position.getZ() + 0.5,
+			Set.of(), player.getYRot(), player.getXRot(), true);
+		player.setRespawnPosition(new RespawnConfig(
+			LevelData.RespawnData.of(level.dimension(), position, 0.0f, 0.0f), true), true);
+		player.setGameMode(GameType.SURVIVAL);
 	}
 
 	/** Gives every participant the same start: empty inventory, full health and hunger, no effects. */
@@ -405,10 +417,12 @@ public final class ArenaManager {
 	public void rejoinParticipant(ServerPlayer player) {
 		participants.removeIf(existing -> existing.getUUID().equals(player.getUUID()));
 		participants.add(player);
+		BlockPos pendingPosition = pendingInitialPlacements.remove(player.getUUID());
+		if (pendingPosition != null) {
+			placeParticipant(player, pendingPosition);
+		}
 		if (frozenPositions.containsKey(player.getUUID())) {
 			// Still in the pre-game freeze; they may have been offline when players were placed.
-			resetForMatch(player);
-			player.setGameMode(GameType.SURVIVAL);
 			player.setNoGravity(true);
 			applyFreezeEffects(player);
 		} else {
@@ -566,6 +580,7 @@ public final class ArenaManager {
 		preparedPositions.clear();
 		preparationGeneration.incrementAndGet();
 		frozenPositions.clear();
+		pendingInitialPlacements.clear();
 		spectators.clear();
 		originalGameModes.clear();
 		generatedChunks = 0;

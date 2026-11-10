@@ -16,7 +16,7 @@ public final class MinuteRushCommands {
 
 	public static void register(com.mojang.brigadier.CommandDispatcher<CommandSourceStack> dispatcher,
 			Supplier<MinuteRushGame> gameSupplier) {
-		// Anyone can use "config" (the settings book) and "status"; everything else needs an operator.
+		// Anyone can use config, status and reset; other match controls need an operator.
 		dispatcher.register(Commands.literal("minute-rush")
 			.then(Commands.literal("start").requires(MinuteRushCommands::isOperator)
 				.executes(context -> execute(context.getSource(), gameSupplier, "start")))
@@ -35,8 +35,8 @@ public final class MinuteRushCommands {
 							"death", "quickfire", "maths"), builder))
 					.executes(context -> testStart(context.getSource(), gameSupplier,
 						StringArgumentType.getString(context, "category")))))
-			.then(Commands.literal("reset").requires(MinuteRushCommands::isOperator)
-				.executes(context -> execute(context.getSource(), gameSupplier, "reset")))
+			.then(Commands.literal("reset")
+				.executes(context -> reset(context.getSource(), gameSupplier)))
 			.then(Commands.literal("config")
 				.executes(context -> openBook(context.getSource(), gameSupplier))
 				.then(Commands.literal("score")
@@ -140,7 +140,6 @@ public final class MinuteRushCommands {
 			case "solo-exit" -> game.reset("Singleplayer test mode stopped.");
 			case "skip" -> source.getPlayer() != null && game.isCategoryTest(source.getPlayer())
 				? game.skipTestTask(source.getPlayer()) : game.skipRound();
-			case "reset" -> game.reset("Match reset.");
 			default -> "Unknown command action.";
 		};
 		source.sendSuccess(() -> Component.literal(message), true);
@@ -183,7 +182,32 @@ public final class MinuteRushCommands {
 			source.sendFailure(Component.literal("Run this command as a player in a world."));
 			return 0;
 		}
+
 		String message = game.voteSkip(source.getPlayer());
+		if (!message.equals(MinuteRushGame.VOTE_RECORDED)) {
+			source.sendFailure(Component.literal(message));
+			return 0;
+		}
+		source.sendSuccess(() -> Component.literal(message), false);
+		return 1;
+	}
+
+	private static int reset(CommandSourceStack source, Supplier<MinuteRushGame> supplier) {
+		MinuteRushGame game = supplier.get();
+		if (game == null) {
+			source.sendFailure(Component.literal("The server is not ready."));
+			return 0;
+		}
+		if (isOperator(source)) {
+			String message = game.reset("Match reset.");
+			source.sendSuccess(() -> Component.literal(message), true);
+			return 1;
+		}
+		if (source.getPlayer() == null) {
+			source.sendFailure(Component.literal("Run this command as a match participant."));
+			return 0;
+		}
+		String message = game.voteReset(source.getPlayer());
 		if (!message.equals(MinuteRushGame.VOTE_RECORDED)) {
 			source.sendFailure(Component.literal(message));
 			return 0;
