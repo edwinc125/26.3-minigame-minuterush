@@ -16,6 +16,8 @@ import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.fabricmc.fabric.api.event.player.UseItemCallback;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.minecraft.tags.DamageTypeTags;
+import net.minecraft.world.damagesource.DamageTypes;
+import net.minecraft.world.entity.NeutralMob;
 import net.minecraft.stats.Stats;
 import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.entity.animal.Animal;
@@ -35,6 +37,7 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.CropBlock;
 import net.minecraft.world.level.material.Fluids;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
+import net.fabricmc.fabric.api.message.v1.ServerMessageEvents;
 import net.minecraft.resources.Identifier;
 import java.util.HashMap;
 import java.util.Map;
@@ -73,6 +76,11 @@ public final class MinuteRushMod implements ModInitializer {
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
 			if (game != null) {
 				game.playerLeft(handler.getPlayer());
+			}
+		});
+		ServerMessageEvents.CHAT_MESSAGE.register((message, player, params) -> {
+			if (game != null) {
+				game.chatMessage(player, message.signedContent());
 			}
 		});
 		UseBlockCallback.EVENT.register((player, world, hand, hitResult) -> {
@@ -216,9 +224,28 @@ public final class MinuteRushMod implements ModInitializer {
 			}
 		});
 		ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
+			if (entity instanceof ServerPlayer deadPlayer) {
+				EntityTaskProgress.record(deadPlayer.getUUID(), "player:death");
+				UUID id = deadPlayer.getUUID();
+				if (source.is(DamageTypes.FALL)) EntityTaskProgress.record(id, "death:fall");
+				if (source.is(DamageTypes.IN_WALL) || source.is(DamageTypes.CRAMMING)) EntityTaskProgress.record(id, "death:suffocation");
+				if (source.is(DamageTypes.DROWN)) EntityTaskProgress.record(id, "death:drown");
+				if (source.is(DamageTypes.LAVA)) EntityTaskProgress.record(id, "death:lava");
+				else if (source.is(DamageTypeTags.IS_FIRE)) EntityTaskProgress.record(id, "death:fire");
+				if (source.is(DamageTypes.CACTUS) || source.is(DamageTypes.SWEET_BERRY_BUSH)) EntityTaskProgress.record(id, "death:pricked");
+				if (source.getEntity() != null) {
+					Entity killer = source.getEntity();
+					String name = BuiltInRegistries.ENTITY_TYPE.getKey(killer.getType()).getPath();
+					EntityTaskProgress.record(id, "death:mob:" + name);
+					if (killer.getType().getCategory() == MobCategory.MONSTER) EntityTaskProgress.record(id, "death:hostile");
+					if (killer instanceof NeutralMob) EntityTaskProgress.record(id, "death:neutral");
+				}
+				if (game != null) {
+					game.playerDied(deadPlayer);
+				}
+			}
 			if (source.getEntity() instanceof ServerPlayer player) {
-			game.playerDied(player);
-			if (entity.getType().getCategory() == MobCategory.MONSTER) {
+				if (entity.getType().getCategory() == MobCategory.MONSTER) {
 					EntityTaskProgress.record(player.getUUID(), "kill:hostile");
 				}
 				if (entity instanceof Animal) {

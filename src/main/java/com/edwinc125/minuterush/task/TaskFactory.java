@@ -36,7 +36,7 @@ public final class TaskFactory {
 	 */
 	public static Selection next(ServerLevel level, Random random, Set<String> recent, boolean allowPlayerInteraction,
 			java.util.function.Predicate<String> possible, DifficultyMix mix) {
-		List<Selection> candidates = all(level);
+		List<Selection> candidates = all(level, random);
 		if (!allowPlayerInteraction) {
 			candidates.removeIf(selection -> isPlayerTask(selection.id()));
 		}
@@ -68,9 +68,16 @@ public final class TaskFactory {
 
 	/** Every task in the pool, before arena, player-count, recency and difficulty filtering. */
 	static List<Selection> all(ServerLevel level) {
+		return all(level, new Random());
+	}
+
+	private static List<Selection> all(ServerLevel level, Random random) {
 		List<Selection> candidates = new ArrayList<>();
 		addBasicTasks(level, candidates);
 		addLegacyTasks(level, candidates);
+		addDeathTasks(candidates);
+		addQuickfireTasks(candidates, random);
+		addMathTasks(candidates, random);
 		return candidates;
 	}
 
@@ -99,6 +106,9 @@ public final class TaskFactory {
 				addLegacyTasks(level, selections);
 				selections.removeIf(selection -> !"interactive".equals(selection.actionType()));
 			}
+			case "death" -> addDeathTasks(selections);
+			case "quickfire" -> addQuickfireTasks(selections, new Random());
+			case "maths" -> addMathTasks(selections, new Random());
 			default -> {
 				return List.of();
 			}
@@ -170,12 +180,16 @@ public final class TaskFactory {
 		craft(candidates, "craft-wooden-shovel", Items.WOODEN_SHOVEL, 1.25);
 		craft(candidates, "craft-wooden-hoe", Items.WOODEN_HOE, 1.0);
 		craft(candidates, "craft-wooden-sword", Items.WOODEN_SWORD, 1.0);
-		craft(candidates, "craft-wooden-button", Items.OAK_BUTTON, 1.0);
-		craft(candidates, "craft-wooden-pressure-plate", Items.OAK_PRESSURE_PLATE, 1.0);
+		craft(candidates, "craft-wooden-spear", Items.WOODEN_SPEAR, 1.0);
 		craft(candidates, "craft-bowl", Items.BOWL, 1.0);
 		craft(candidates, "craft-chest", Items.CHEST, 1.0);
 		craft(candidates, "craft-torch", Items.TORCH, 1.25);
 		craft(candidates, "craft-stone-pickaxe", Items.STONE_PICKAXE, 1.0);
+		craft(candidates, "craft-stone-sword", Items.STONE_SWORD, 1.0);
+		craft(candidates, "craft-stone-axe", Items.STONE_AXE, 1.0);
+		craft(candidates, "craft-stone-shovel", Items.STONE_SHOVEL, 1.0);
+		craft(candidates, "craft-stone-hoe", Items.STONE_HOE, 1.0);
+		craft(candidates, "craft-stone-spear", Items.STONE_SPEAR, 1.0);
 		craft(candidates, "craft-furnace", Items.FURNACE, 1.0);
 		craft(candidates, "craft-leather-helmet", Items.LEATHER_HELMET, 1.0);
 		craft(candidates, "craft-leather-chestplate", Items.LEATHER_CHESTPLATE, 1.0);
@@ -190,6 +204,7 @@ public final class TaskFactory {
 		craft(candidates, "craft-iron-axe", Items.IRON_AXE, 0.75);
 		craft(candidates, "craft-iron-shovel", Items.IRON_SHOVEL, 0.75);
 		craft(candidates, "craft-iron-hoe", Items.IRON_HOE, 0.75);
+		craft(candidates, "craft-iron-spear", Items.IRON_SPEAR, 0.75);
 		craft(candidates, "craft-iron-bucket", Items.BUCKET, 0.75);
 		craft(candidates, "craft-shears", Items.SHEARS, 0.75);
 		craft(candidates, "craft-flint-and-steel", Items.FLINT_AND_STEEL, 0.75);
@@ -198,6 +213,28 @@ public final class TaskFactory {
 		craft(candidates, "craft-copper-pickaxe", Items.COPPER_PICKAXE, 0.75);
 		craft(candidates, "craft-copper-axe", Items.COPPER_AXE, 0.75);
 		craft(candidates, "craft-copper-hoe", Items.COPPER_HOE, 0.75);
+		craft(candidates, "craft-copper-spear", Items.COPPER_SPEAR, 0.75);
+		craft(candidates, "craft-golden-sword", Items.GOLDEN_SWORD, 0.50);
+		craft(candidates, "craft-golden-pickaxe", Items.GOLDEN_PICKAXE, 0.50);
+		craft(candidates, "craft-golden-axe", Items.GOLDEN_AXE, 0.50);
+		craft(candidates, "craft-golden-shovel", Items.GOLDEN_SHOVEL, 0.50);
+		craft(candidates, "craft-golden-hoe", Items.GOLDEN_HOE, 0.50);
+		craft(candidates, "craft-golden-spear", Items.GOLDEN_SPEAR, 0.50);
+		craft(candidates, "craft-golden-helmet", Items.GOLDEN_HELMET, 0.50);
+		craft(candidates, "craft-golden-chestplate", Items.GOLDEN_CHESTPLATE, 0.50);
+		craft(candidates, "craft-golden-leggings", Items.GOLDEN_LEGGINGS, 0.50);
+		craft(candidates, "craft-golden-boots", Items.GOLDEN_BOOTS, 0.50);
+		craft(candidates, "craft-diamond-sword", Items.DIAMOND_SWORD, 0.30);
+		craft(candidates, "craft-diamond-pickaxe", Items.DIAMOND_PICKAXE, 0.30);
+		craft(candidates, "craft-diamond-axe", Items.DIAMOND_AXE, 0.30);
+		craft(candidates, "craft-diamond-shovel", Items.DIAMOND_SHOVEL, 0.30);
+		craft(candidates, "craft-diamond-hoe", Items.DIAMOND_HOE, 0.30);
+		craft(candidates, "craft-diamond-spear", Items.DIAMOND_SPEAR, 0.30);
+		craft(candidates, "craft-smoker", Items.SMOKER, 0.75);
+		craft(candidates, "craft-blast-furnace", Items.BLAST_FURNACE, 0.50);
+		craft(candidates, "craft-campfire", Items.CAMPFIRE, 0.75);
+		craft(candidates, "craft-barrel", Items.BARREL, 1.0);
+		craft(candidates, "craft-composter", Items.COMPOSTER, 1.0);
 		craft(candidates, "craft-copper-helmet", Items.COPPER_HELMET, 0.75);
 		craft(candidates, "craft-copper-chestplate", Items.COPPER_CHESTPLATE, 0.75);
 		craft(candidates, "craft-copper-leggings", Items.COPPER_LEGGINGS, 0.75);
@@ -211,6 +248,7 @@ public final class TaskFactory {
 		for (net.minecraft.world.item.DyeColor color : net.minecraft.world.item.DyeColor.values()) {
 			craft(candidates, "craft-bed-" + color.getName(), Items.BED.pick(color), 0.75);
 		}
+
 		craftWoodVariants(candidates);
 		addStoneCraftTasks(candidates);
 		candidates.add(new Selection("hit-cow", new EntityEventTask("hit:cow", "Hit a cow")));
@@ -351,43 +389,88 @@ public final class TaskFactory {
 		movement(candidates);
 	}
 
+	private static void addDeathTasks(List<Selection> candidates) {
+		death(candidates, "easy-fall", "fall", "Fall to your death");
+		death(candidates, "easy-suffocation", "suffocation", "Die by suffocation");
+		death(candidates, "easy-drown", "drown", "Drown");
+		death(candidates, "easy-fire", "fire", "Die from fire damage");
+		death(candidates, "easy-lava", "lava", "Die from lava");
+		death(candidates, "easy-hostile", "hostile", "Be killed by a hostile mob");
+		for (String mob : List.of("creeper", "zombie", "spider", "skeleton")) {
+			death(candidates, "easy-" + mob, "mob:" + mob, "Be killed by a " + mob);
+		}
+		death(candidates, "medium-enderman", "mob:enderman", "Be killed by an enderman");
+		death(candidates, "medium-neutral", "neutral", "Be killed by a neutral mob");
+		death(candidates, "medium-pricked", "pricked", "Be pricked to death");
+		death(candidates, "hard-warden", "mob:warden", "Be killed by a warden");
+		death(candidates, "hard-breeze", "mob:breeze", "Be killed by a breeze");
+	}
+
+	private static void death(List<Selection> candidates, String id, String event, String prompt) {
+		candidates.add(new Selection("death-" + id, new DeathTask("death:" + event, prompt), 0.5, "death"));
+	}
+
+	private static void addQuickfireTasks(List<Selection> candidates, Random random) {
+		candidates.add(new Selection("quickfire-look-up", new LookTask(true), 1.0, "quickfire"));
+		candidates.add(new Selection("quickfire-look-down", new LookTask(false), 1.0, "quickfire"));
+		candidates.add(new Selection("quickfire-crouch-3", new CrouchTask(3), 1.0, "quickfire"));
+		candidates.add(new Selection("quickfire-crouch-5", new CrouchTask(5), 0.85, "quickfire"));
+		candidates.add(new Selection("quickfire-crouch-7", new CrouchTask(7), 0.70, "quickfire"));
+		String number = randomString(random, "0123456789", 10);
+		String letters = randomString(random, "abcdefghijklmnopqrstuvwxyz", 10);
+		String mixed;
+		do {
+			mixed = randomString(random, "abcdefghijklmnopqrstuvwxyz0123456789", 10);
+		} while (!mixed.matches(".*[a-z].*") || !mixed.matches(".*[0-9].*"));
+		String mixedTarget = mixed;
+		candidates.add(new Selection("quickfire-type-any", new ChatTask("Type at least 10 characters in chat",
+			value -> value.length() >= 10), 1.0, "quickfire"));
+		candidates.add(new Selection("quickfire-type-number", new ChatTask("Type " + number + " in chat",
+			number::equals), 1.0, "quickfire", TaskDifficulty.SIMPLE));
+		candidates.add(new Selection("quickfire-type-letters", new ChatTask("Type " + letters + " in chat",
+			value -> letters.equalsIgnoreCase(value)), 1.0, "quickfire", TaskDifficulty.SIMPLE));
+		candidates.add(new Selection("quickfire-type-alphanumeric", new ChatTask("Type " + mixedTarget + " in chat",
+			value -> mixedTarget.equalsIgnoreCase(value)), 1.0, "quickfire", TaskDifficulty.SIMPLE));
+	}
+
+	private static void addMathTasks(List<Selection> candidates, Random random) {
+		candidates.addAll(MathCatalog.generate(random));
+	}
+
+	private static String randomString(Random random, String alphabet, int length) {
+		StringBuilder value = new StringBuilder(length);
+		for (int i = 0; i < length; i++) {
+			value.append(alphabet.charAt(random.nextInt(alphabet.length())));
+		}
+		return value.toString();
+	}
+
 	private static void craft(List<Selection> candidates, String id, net.minecraft.world.item.Item item, double weight) {
 		candidates.add(new Selection(id, new CraftItemTask(item), weight, "crafting"));
 	}
 
 	private static void craftWoodVariants(List<Selection> candidates) {
-		net.minecraft.world.item.Item[] fences = {
-			Items.OAK_FENCE, Items.SPRUCE_FENCE, Items.BIRCH_FENCE, Items.JUNGLE_FENCE,
-			Items.ACACIA_FENCE, Items.DARK_OAK_FENCE, Items.MANGROVE_FENCE, Items.CHERRY_FENCE,
-			Items.PALE_OAK_FENCE, Items.BAMBOO_FENCE
-		};
-		net.minecraft.world.item.Item[] gates = {
-			Items.OAK_FENCE_GATE, Items.SPRUCE_FENCE_GATE, Items.BIRCH_FENCE_GATE,
-			Items.JUNGLE_FENCE_GATE, Items.ACACIA_FENCE_GATE, Items.DARK_OAK_FENCE_GATE,
-			Items.MANGROVE_FENCE_GATE, Items.CHERRY_FENCE_GATE, Items.PALE_OAK_FENCE_GATE,
-			Items.BAMBOO_FENCE_GATE
-		};
-		net.minecraft.world.item.Item[] signs = {
-			Items.OAK_SIGN, Items.SPRUCE_SIGN, Items.BIRCH_SIGN, Items.JUNGLE_SIGN,
-			Items.ACACIA_SIGN, Items.DARK_OAK_SIGN, Items.MANGROVE_SIGN, Items.CHERRY_SIGN,
-			Items.PALE_OAK_SIGN, Items.BAMBOO_SIGN
-		};
-		net.minecraft.world.item.Item[] plates = {
-			Items.OAK_PRESSURE_PLATE, Items.SPRUCE_PRESSURE_PLATE, Items.BIRCH_PRESSURE_PLATE,
-			Items.JUNGLE_PRESSURE_PLATE, Items.ACACIA_PRESSURE_PLATE, Items.DARK_OAK_PRESSURE_PLATE,
-			Items.MANGROVE_PRESSURE_PLATE, Items.CHERRY_PRESSURE_PLATE, Items.PALE_OAK_PRESSURE_PLATE,
-			Items.BAMBOO_PRESSURE_PLATE
-		};
-		addCraftSet(candidates, "fence", fences);
-		addCraftSet(candidates, "fence-gate", gates);
-		addCraftSet(candidates, "sign", signs);
-		addCraftSet(candidates, "pressure-plate", plates);
-	}
-
-	private static void addCraftSet(List<Selection> candidates, String prefix,
-			net.minecraft.world.item.Item[] items) {
-		for (int i = 0; i < items.length; i++) {
-			craft(candidates, "craft-" + prefix + "-" + i, items[i], 0.75);
+		List<String> woods = List.of("oak", "spruce", "birch", "jungle", "acacia", "dark_oak",
+			"mangrove", "cherry", "pale_oak", "poplar", "bamboo", "crimson", "warped");
+		for (String kind : List.of("fence", "fence_gate", "sign", "pressure_plate", "button",
+				"slab", "stairs", "door", "trapdoor", "shelf", "hanging_sign")) {
+			List<Item> variants = new ArrayList<>();
+			String label = kind.replace('_', ' ');
+			for (String wood : woods) {
+				String registryId = wood + "_" + kind;
+				Item item = net.minecraft.core.registries.BuiltInRegistries.ITEM
+					.getOptional(net.minecraft.resources.Identifier.withDefaultNamespace(registryId))
+					.orElseThrow(() -> new IllegalStateException("Missing wood item: " + registryId));
+				variants.add(item);
+				String woodName = wood.replace('_', '-');
+				candidates.add(new Selection("craft-wood-" + woodName + ":" + kind.replace('_', '-'),
+					new CraftItemTask(item, "Craft", wood.replace('_', ' ') + " wood " + label),
+					0.10, "crafting"));
+			}
+			String prompt = kind.equals("stairs") ? "Craft wooden stairs of any type"
+				: "Craft a wooden " + label + " of any type";
+			candidates.add(new Selection("craft-wooden-" + kind.replace('_', '-'),
+				new CraftAnyItemTask(prompt, variants), 0.75, "crafting"));
 		}
 	}
 

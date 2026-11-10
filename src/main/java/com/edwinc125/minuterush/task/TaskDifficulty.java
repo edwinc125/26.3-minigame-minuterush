@@ -24,6 +24,14 @@ public enum TaskDifficulty {
 		if (taskId.startsWith("basic:")) {
 			return basic(TaskRequirements.subject(taskId));
 		}
+		if (taskId.startsWith("math-easy-")) return EASY;
+		if (taskId.startsWith("math-simple-") || taskId.startsWith("quickfire-")) return SIMPLE;
+		if (taskId.startsWith("death-hard-")) return HARD;
+		if (taskId.startsWith("death-medium-")) return MEDIUM;
+		if (taskId.startsWith("death-easy-")) return EASY;
+		if (taskId.startsWith("craft-wood-") || taskId.startsWith("craft-wooden-")) {
+			return taskId.contains("hanging-sign") ? MEDIUM : EASY;
+		}
 		if (taskId.startsWith("craft-bed-")) {
 			// White wool + planks is basic; these dyes need smelting, rare drops or a specific biome.
 			return BED_DYES_NEEDING_EXTRA.contains(taskId.substring("craft-bed-".length())) ? MEDIUM : EASY;
@@ -35,6 +43,11 @@ public enum TaskDifficulty {
 		if (taskId.startsWith("craft-iron-")) {
 			return MEDIUM;
 		}
+		if (taskId.equals("craft-copper-spear") || taskId.startsWith("craft-golden-")
+				|| taskId.equals("craft-smoker") || taskId.equals("craft-campfire")) return MEDIUM;
+		if (taskId.startsWith("craft-diamond-") || taskId.equals("craft-blast-furnace")) return HARD;
+		if (taskId.startsWith("craft-stone-") || taskId.equals("craft-barrel")
+				|| taskId.equals("craft-composter")) return EASY;
 		if (taskId.startsWith("craft-copper-") || taskId.startsWith("craft-wooden-")
 				|| taskId.startsWith("craft-leather-")) {
 			return EASY;
@@ -55,6 +68,7 @@ public enum TaskDifficulty {
 	}
 
 	private static TaskDifficulty basic(String subject) {
+		if (subject.startsWith("stripped-")) return MEDIUM;
 		return switch (subject) {
 			case "diamond", "emerald" -> HARD;
 			case "raw-iron", "raw-gold", "redstone-dust", "lapis-lazuli", "apple", "glow-ink-sac", "clock",

@@ -3,6 +3,7 @@ package com.edwinc125.minuterush.game;
 import com.edwinc125.minuterush.config.MinuteRushConfig;
 import com.edwinc125.minuterush.task.MinuteRushTask;
 import com.edwinc125.minuterush.task.TaskFactory;
+import com.edwinc125.minuterush.task.ChatTask;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.List;
@@ -274,6 +275,9 @@ public final class MinuteRushGame {
 		if (state != MatchState.ROUND_ACTIVE) {
 			return;
 		}
+		if (task instanceof com.edwinc125.minuterush.task.DeathTask) {
+			arena.enableKeepInventory(config.keepInventoryGraceSeconds());
+		}
 		if (--ticksRemaining <= 0) {
 			server.getPlayerList().broadcastSystemMessage(Component.literal("Time's up! The round is skipped."), false);
 			beginIntermission("No one completed the task! Skipping...");
@@ -431,6 +435,16 @@ public final class MinuteRushGame {
 		return testPlayer != null && testPlayer.getUUID().equals(player.getUUID());
 	}
 
+	public void chatMessage(ServerPlayer player, String message) {
+		if (testPlayer != null && testPlayer.getUUID().equals(player.getUUID()) && testTask instanceof ChatTask chatTask) {
+			chatTask.accept(player, message);
+		}
+		if (state == MatchState.ROUND_ACTIVE && task instanceof ChatTask chatTask
+				&& isParticipant(player)) {
+			chatTask.accept(player, message);
+		}
+	}
+
 	public String startCategoryTest(ServerPlayer player, String category) {
 		List<TaskFactory.Selection> selections = TaskFactory.category(server.overworld(), category);
 		if (selections.isEmpty()) {
@@ -476,6 +490,9 @@ public final class MinuteRushGame {
 			difficultyProgress.next(config.difficulty(), participants.size(), matchTicks));
 		task = selection.task();
 		currentTaskId = selection.id();
+		if (task instanceof com.edwinc125.minuterush.task.DeathTask) {
+			arena.enableKeepInventory(config.keepInventoryGraceSeconds());
+		}
 		skipVote.clear();
 		recentTaskIds.addLast(selection.id());
 		while (recentTaskIds.size() > 3) {
@@ -496,6 +513,13 @@ public final class MinuteRushGame {
 	}
 
 	private void tickCategoryTest() {
+		if (testPlayer != null) {
+			ServerPlayer online = server.getPlayerList().getPlayer(testPlayer.getUUID());
+			if (online != null) testPlayer = online;
+			if (testTask instanceof com.edwinc125.minuterush.task.DeathTask) {
+				arena.enableKeepInventory(config.keepInventoryGraceSeconds());
+			}
+		}
 		if (testPlayer != null && testTask != null && testTask.isComplete(testPlayer)) {
 			advanceTestTask();
 		}
@@ -508,6 +532,9 @@ public final class MinuteRushGame {
 
 	private void assignTestTask() {
 		testTask = testSelections.get(testIndex).task();
+		if (testTask instanceof com.edwinc125.minuterush.task.DeathTask) {
+			arena.enableKeepInventory(config.keepInventoryGraceSeconds());
+		}
 		testTask.begin(testPlayer);
 		testPlayer.sendSystemMessage(Component.literal(
 			"Category test [" + testCategory + "] " + (testIndex + 1) + "/" + testSelections.size()
@@ -707,7 +734,8 @@ public final class MinuteRushGame {
 
 	private boolean isDeathTask() {
 		return currentTaskId != null && (currentTaskId.startsWith("kill-")
-			|| currentTaskId.endsWith("-damage") || currentTaskId.equals("fall-damage"));
+			|| currentTaskId.endsWith("-damage") || currentTaskId.equals("fall-damage")
+			|| currentTaskId.startsWith("death-"));
 	}
 
 	/**

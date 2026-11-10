@@ -7,6 +7,16 @@ import org.junit.jupiter.api.Test;
 
 class ArenaSurveyTest {
 	@Test
+	void structureResultsAreNotAvailableUntilPublishedAndMustBeWithinBorder() {
+		ArenaSurvey<String> survey = new ArenaSurvey<>();
+		survey.recordStructure("trial-chambers", 40, -60);
+		assertFalse(survey.hasStructureWithin("trial-chambers", 100));
+		survey.markStructuresScanned();
+		assertFalse(survey.hasStructureWithin("trial-chambers", 59));
+		assertTrue(survey.hasStructureWithin("trial-chambers", 60));
+		assertFalse(survey.hasStructureWithin("ancient-city", 100));
+	}
+	@Test
 	void distanceMatchesASquareBorder() {
 		assertEquals(80, ArenaSurvey.distance(80, -30));
 		assertEquals(80, ArenaSurvey.distance(-10, -80));
