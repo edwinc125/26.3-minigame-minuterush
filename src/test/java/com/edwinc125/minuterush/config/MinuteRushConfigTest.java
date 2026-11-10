@@ -17,4 +17,13 @@ class MinuteRushConfigTest {
 		assertThrows(IllegalArgumentException.class, () -> new MinuteRushConfig(0, 60));
 		assertThrows(IllegalArgumentException.class, () -> new MinuteRushConfig(10, 0));
 	}
+
+	@Test
+	void summarizesTheSettingsThatWillBeUsedForTheMatch() {
+		assertEquals("Match settings: difficulty progressive, PvP on, points to win 10, time per round 60s.",
+			MinuteRushConfig.DEFAULT.matchStartSummary());
+		assertEquals("Match settings: difficulty hard, PvP off, points to win 8, time per round 45s.",
+			MinuteRushConfig.DEFAULT.withDifficulty(com.edwinc125.minuterush.task.MatchDifficulty.HARD)
+				.withPvp(false).withTargetScore(8).withRoundDurationSeconds(45).matchStartSummary());
+	}
 }

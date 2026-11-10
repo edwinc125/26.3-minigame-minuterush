@@ -42,6 +42,7 @@ import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.server.level.ChunkResult;
 import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.NoiseColumn;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.border.WorldBorder;
 import net.minecraft.world.level.storage.LevelData;
@@ -62,6 +63,9 @@ public final class ArenaManager {
 	private static final int FREEZE_AMPLIFIER = 200;
 	private static final int ARENA_CHUNK_WIDTH = 10;
 	private static final int ARENA_CHUNK_DEPTH = 10;
+	private static final int MAX_ARENA_CANDIDATES = ArenaCandidateScore.POOL_SIZE;
+	private static final int MAX_CANDIDATE_SCANS_IN_FLIGHT = 2;
+	private static final int MAX_CANDIDATE_ATTEMPTS = 50;
 	private WorldBorderSnapshot originalBorder;
 	private boolean originalKeepInventory;
 	private boolean keepInventoryCaptured;
@@ -83,6 +87,16 @@ public final class ArenaManager {
 	private final Map<UUID, GameType> pendingLobbyReturns = new HashMap<>();
 	/** Biome sample spacing in blocks; 16 gives ~4000 samples for a 1000-block border. */
 	private static final int SURVEY_STEP = 16;
+	private final List<ArenaCandidate> candidatePool = new ArrayList<>();
+	private final Set<Long> candidateCentersInUse = new HashSet<>();
+	private final Random candidateRandom = new Random();
+	private int candidateScansInFlight;
+	private int candidateAttempts;
+	private boolean initialCandidateSelection;
+	private boolean lowScoreReevaluationUsed;
+	private boolean chunkLoadingStarted;
+	private ArenaCandidate selectedCandidate;
+	private String preparationFailure;
 	private volatile ArenaSurvey<Holder<Biome>> survey;
 	private int surveyRadius = 500;
 
@@ -106,6 +120,10 @@ public final class ArenaManager {
 		return totalChunks;
 	}
 
+	public String preparationFailure() {
+		return preparationFailure;
+	}
+
 	public void beginPreparation(List<ServerPlayer> players, MinuteRushConfig config) {
 		beginPreparation(players, List.of(), config);
 	}
@@ -113,6 +131,11 @@ public final class ArenaManager {
 	public void beginPreparation(List<ServerPlayer> players, List<ServerPlayer> spectatorPlayers,
 			MinuteRushConfig config) {
 		resetPreparation();
+		preparationFailure = null;
+		initialCandidateSelection = true;
+		lowScoreReevaluationUsed = false;
+		chunkLoadingStarted = false;
+		candidateAttempts = 0;
 		surveyRadius = config.maxBorderSize() / 2;
 		participants.addAll(players);
 		for (ServerPlayer spectator : spectatorPlayers) {
@@ -121,9 +144,6 @@ public final class ArenaManager {
 			spectator.setGameMode(GameType.SPECTATOR);
 		}
 		ServerLevel level = server.overworld();
-		BlockPos spawn = chooseArenaCenter(level);
-		centerX = spawn.getX();
-		centerZ = spawn.getZ();
 		originalBorder = WorldBorderSnapshot.capture(level.getWorldBorder());
 		originalKeepInventory = level.getGameRules().get(net.minecraft.world.level.gamerules.GameRules.KEEP_INVENTORY);
 		keepInventoryCaptured = true;
@@ -133,7 +153,7 @@ public final class ArenaManager {
 		preparing = true;
 		ready = false;
 		freeze(players);
-		startChunkLoading(level);
+		maintainCandidatePool(level);
 	}
 
 	public static void registerTaskBlock(ServerLevel level, BlockPos position) {
@@ -156,47 +176,151 @@ public final class ArenaManager {
 			return;
 		}
 		ServerLevel level = server.overworld();
+		maintainCandidatePool(level);
+		if (!chunkLoadingStarted) {
+			boolean poolReady = initialCandidateSelection
+				? candidatePool.size() == MAX_ARENA_CANDIDATES
+					|| (candidateScansInFlight == 0 && candidateAttempts >= MAX_CANDIDATE_ATTEMPTS)
+				: !candidatePool.isEmpty();
+			if (poolReady) {
+				selectBestCandidate(level);
+			} else if (candidateScansInFlight == 0 && candidateAttempts >= MAX_CANDIDATE_ATTEMPTS
+					&& candidatePool.isEmpty()) {
+				preparationFailure = "Arena selection failed: no location with at least 50% land was found.";
+				preparing = false;
+			}
+			return;
+		}
 		generatedChunks = loadedChunks.get();
 		if (failedChunks.get() > 0) {
 			restartPreparation(level);
 			return;
 		}
-		if (loadedChunks.get() == totalChunks && prepareParticipantPositions(level)) {
-			preparing = false;
-			ready = true;
+		if (loadedChunks.get() == totalChunks) {
+			if (prepareParticipantPositions(level)) {
+				preparing = false;
+				ready = true;
+			} else {
+				restartPreparation(level);
+			}
 		}
 	}
 
+	private void maintainCandidatePool(ServerLevel level) {
+		if (!preparing && selectedCandidate == null) {
+			return;
+		}
+		if (!lowScoreReevaluationUsed && ArenaCandidateScore.shouldReevaluatePool(
+				candidatePool.stream().map(ArenaCandidate::score).toList())) {
+			candidatePool.forEach(candidate ->
+				candidateCentersInUse.remove(packChunk(candidate.center().getX(), candidate.center().getZ())));
+			candidatePool.clear();
+			candidateAttempts = 0;
+			lowScoreReevaluationUsed = true;
+		}
+
+		while (candidatePool.size() + candidateScansInFlight < MAX_ARENA_CANDIDATES
+				&& candidateScansInFlight < MAX_CANDIDATE_SCANS_IN_FLIGHT
+				&& candidateAttempts < MAX_CANDIDATE_ATTEMPTS) {
+			BlockPos center = nextCandidateCenter();
+			long key = packChunk(center.getX(), center.getZ());
+			if (!candidateCentersInUse.add(key)) {
+				continue;
+			}
+			candidateScansInFlight++;
+			candidateAttempts++;
+			evaluateCandidate(level, center).whenComplete((candidate, error) -> server.execute(() -> {
+				candidateScansInFlight--;
+				candidateCentersInUse.remove(key);
+				if (error != null) {
+					com.mojang.logging.LogUtils.getLogger().warn("Minute Rush arena candidate survey failed", error);
+				} else if (candidate != null) {
+					candidatePool.add(candidate);
+					candidateCentersInUse.add(key);
+					candidatePool.sort((left, right) -> Double.compare(
+						right.score().score(), left.score().score()));
+					while (candidatePool.size() > MAX_ARENA_CANDIDATES) {
+						ArenaCandidate removed = candidatePool.remove(candidatePool.size() - 1);
+						candidateCentersInUse.remove(
+							packChunk(removed.center().getX(), removed.center().getZ()));
+					}
+				}
+				if (preparing) {
+					maintainCandidatePool(server.overworld());
+				}
+			}));
+		}
+	}
+
+	private BlockPos nextCandidateCenter() {
+		BlockPos lobby = server.getRespawnData().pos();
+		int distance = 3_000 + candidateRandom.nextInt(27_001);
+		double angle = candidateRandom.nextDouble() * Math.PI * 2.0;
+		return new BlockPos(
+			lobby.getX() + (int) Math.round(Math.cos(angle) * distance),
+			80,
+			lobby.getZ() + (int) Math.round(Math.sin(angle) * distance));
+	}
+
+	private void selectBestCandidate(ServerLevel level) {
+		if (candidatePool.isEmpty()) {
+			return;
+		}
+		candidatePool.sort((left, right) ->
+			Double.compare(right.score().score(), left.score().score()));
+		selectedCandidate = candidatePool.remove(0);
+		BlockPos center = selectedCandidate.center();
+		centerX = center.getX();
+		centerZ = center.getZ();
+		survey = selectedCandidate.survey();
+		initialCandidateSelection = false;
+		loadedChunks.set(0);
+		failedChunks.set(0);
+		totalChunks = ARENA_CHUNK_WIDTH * ARENA_CHUNK_DEPTH;
+		com.mojang.logging.LogUtils.getLogger().info(
+			"Minute Rush selected arena at {},{} (score {}, biomes {}, structures {}, land {}%)",
+			centerX, centerZ, Math.round(selectedCandidate.score().score()),
+			selectedCandidate.score().biomeDiversity(), selectedCandidate.score().structureCount(),
+			Math.round(selectedCandidate.score().landRatio() * 100));
+		startChunkLoading(level);
+		maintainCandidatePool(level);
+	}
+
 	/**
-	 * Surveys the largest border the arena can reach, entirely off the server thread: samples surface biomes
-	 * every SURVEY_STEP blocks, then predicts villages and selected underground structures from their placement
-	 * rules. This evaluates seed-based worldgen without generating or loading chunks.
+	 * Samples terrain and structure placement without loading chunks. The biome and terrain queries run on a
+	 * background worker, and the completed survey is retained for task availability if this candidate is selected.
 	 */
-	private void startSurvey(ServerLevel level) {
-		ArenaSurvey<Holder<Biome>> next = new ArenaSurvey<>();
-		survey = next;
-		int cx = centerX;
-		int cz = centerZ;
-		int radius = surveyRadius;
+	private CompletableFuture<ArenaCandidate> evaluateCandidate(ServerLevel level, BlockPos center) {
 		BiomeSource source = level.getChunkSource().getGenerator().getBiomeSource();
+		var generator = level.getChunkSource().getGenerator();
 		RandomState randomState = level.getChunkSource().randomState();
 		ChunkGeneratorStructureState structureState = level.getChunkSource().getGeneratorState();
-		// Resolve tags on the server thread; the worker only reads the resulting list.
 		List<StructureSet> villageSets = structureState.possibleStructureSets().stream()
 			.map(Holder::value)
 			.filter(set -> set.structures().stream().anyMatch(entry -> entry.structure().is(StructureTags.VILLAGE)))
 			.toList();
 		List<StructureSet> allSets = structureState.possibleStructureSets().stream().map(Holder::value).toList();
-		// High above the terrain, so the sampled biome is the surface biome rather than a cave biome.
+		int cx = center.getX();
+		int cz = center.getZ();
+		int radius = surveyRadius;
 		int quartY = QuartPos.fromBlock(256);
-		CompletableFuture.runAsync(() -> {
-			// Created on the worker thread: an uncached resolver is not shared with world generation.
+		return CompletableFuture.supplyAsync(() -> {
 			BiomeResolver resolver = source.createUncachedResolver(randomState);
+			ArenaSurvey<Holder<Biome>> next = new ArenaSurvey<>();
+			int waterSamples = 0;
+			int totalSamples = 0;
 			for (int dx = -radius; dx <= radius; dx += SURVEY_STEP) {
 				for (int dz = -radius; dz <= radius; dz += SURVEY_STEP) {
-					Holder<Biome> biome = resolver.getNoiseBiome(
-						QuartPos.fromBlock(cx + dx), quartY, QuartPos.fromBlock(cz + dz));
+					int x = cx + dx;
+					int z = cz + dz;
+					Holder<Biome> biome = resolver.getNoiseBiome(QuartPos.fromBlock(x), quartY, QuartPos.fromBlock(z));
 					next.addBiomeSample(biome, dx, dz);
+					int top = generator.getBaseHeight(x, z, Heightmap.Types.WORLD_SURFACE_WG, level, randomState);
+					NoiseColumn column = generator.getBaseColumn(x, z, level, randomState);
+					if (column.getBlock(top - 1).getFluidState().is(FluidTags.WATER)) {
+						waterSamples++;
+					}
+					totalSamples++;
 				}
 			}
 			next.markBiomesScanned();
@@ -206,10 +330,44 @@ public final class ArenaManager {
 			findUndergroundStructure(next, allSets, structureState, resolver, cx, cz, radius,
 				"trial-chambers", BuiltinStructures.TRIAL_CHAMBERS, -24);
 			next.markStructuresScanned();
-		}, Util.backgroundExecutor()).exceptionally(error -> {
-			com.mojang.logging.LogUtils.getLogger().warn("Minute Rush arena survey failed", error);
-			return null;
-		});
+			int structureCount = countPotentialStructures(allSets, structureState, resolver, cx, cz, radius, quartY);
+			return ArenaCandidateScore.fromSamples(next.biomeDiversity(), structureCount,
+				waterSamples, totalSamples)
+				.map(score -> new ArenaCandidate(center, next, score))
+				.orElse(null);
+		}, Util.backgroundExecutor());
+	}
+
+	private static int countPotentialStructures(List<StructureSet> sets, ChunkGeneratorStructureState state,
+			BiomeResolver resolver, int cx, int cz, int radius, int quartY) {
+		int count = 0;
+		for (StructureSet set : sets) {
+			if (!(set.placement() instanceof RandomSpreadStructurePlacement spread)) {
+				continue;
+			}
+			int spacing = spread.spacing();
+			int minX = Math.floorDiv((cx - radius) >> 4, spacing);
+			int maxX = Math.floorDiv((cx + radius) >> 4, spacing);
+			int minZ = Math.floorDiv((cz - radius) >> 4, spacing);
+			int maxZ = Math.floorDiv((cz + radius) >> 4, spacing);
+			for (int regionX = minX; regionX <= maxX; regionX++) {
+				for (int regionZ = minZ; regionZ <= maxZ; regionZ++) {
+					ChunkPos chunk = spread.getPotentialStructureChunk(state.getLevelSeed(),
+						regionX * spacing, regionZ * spacing);
+					if (ArenaSurvey.distance(chunk.getMiddleBlockX() - cx, chunk.getMiddleBlockZ() - cz) > radius
+							|| !spread.isStructureChunk(state, chunk.x(), chunk.z())) {
+						continue;
+					}
+					Holder<Biome> biome = resolver.getNoiseBiome(QuartPos.fromBlock(chunk.getMiddleBlockX()),
+						quartY, QuartPos.fromBlock(chunk.getMiddleBlockZ()));
+					if (set.structures().stream()
+							.anyMatch(entry -> entry.structure().value().biomes().contains(biome))) {
+						count++;
+					}
+				}
+			}
+		}
+		return count;
 	}
 
 	// Candidate positions and a representative underground biome are predictions, not proof of generated structures.
@@ -469,6 +627,7 @@ public final class ArenaManager {
 			restoreKeepInventory();
 			keepInventoryUntil = 0;
 		}
+		maintainCandidatePool(server.overworld());
 	}
 
 	public boolean cleanupActive() {
@@ -574,8 +733,23 @@ public final class ArenaManager {
 	}
 
 	public void resetPreparation() {
+		if (selectedCandidate != null) {
+			candidatePool.add(selectedCandidate);
+			candidateCentersInUse.add(packChunk(
+				selectedCandidate.center().getX(), selectedCandidate.center().getZ()));
+			candidatePool.sort((left, right) ->
+				Double.compare(right.score().score(), left.score().score()));
+			while (candidatePool.size() > MAX_ARENA_CANDIDATES) {
+				ArenaCandidate removed = candidatePool.remove(candidatePool.size() - 1);
+				candidateCentersInUse.remove(packChunk(
+					removed.center().getX(), removed.center().getZ()));
+			}
+			selectedCandidate = null;
+		}
 		preparing = false;
 		ready = false;
+		chunkLoadingStarted = false;
+		preparationFailure = null;
 		participants.clear();
 		preparedPositions.clear();
 		preparationGeneration.incrementAndGet();
@@ -601,8 +775,6 @@ public final class ArenaManager {
 
 	private static void applyFreezeEffects(ServerPlayer player) {
 		player.addEffect(new MobEffectInstance(MobEffects.SLOWNESS, 40, FREEZE_AMPLIFIER,
-			false, false, false));
-		player.addEffect(new MobEffectInstance(MobEffects.JUMP_BOOST, 40, FREEZE_AMPLIFIER,
 			false, false, false));
 	}
 
@@ -693,20 +865,21 @@ public final class ArenaManager {
 
 	private void restartPreparation(ServerLevel level) {
 		preparedPositions.clear();
-		BlockPos spawn = chooseArenaCenter(level);
-		centerX = spawn.getX();
-		centerZ = spawn.getZ();
 		loadedChunks.set(0);
 		failedChunks.set(0);
-		totalChunks = ARENA_CHUNK_WIDTH * ARENA_CHUNK_DEPTH;
 		preparationGeneration.incrementAndGet();
+		candidateCentersInUse.remove(packChunk(centerX, centerZ));
+		selectedCandidate = null;
+		survey = null;
+		chunkLoadingStarted = false;
+		initialCandidateSelection = false;
 		freeze(participants);
-		startChunkLoading(level);
+		maintainCandidatePool(level);
 	}
 
 	private void startChunkLoading(ServerLevel level) {
 		int generation = preparationGeneration.get();
-		startSurvey(level);
+		chunkLoadingStarted = true;
 		int halfWidth = ARENA_CHUNK_WIDTH / 2;
 		int halfDepth = ARENA_CHUNK_DEPTH / 2;
 		for (int x = -halfWidth; x < ARENA_CHUNK_WIDTH - halfWidth; x++) {
@@ -734,35 +907,6 @@ public final class ArenaManager {
 		}
 	}
 
-	private static BlockPos chooseArenaCenter(ServerLevel level) {
-		BlockPos lobby = level.getServer().getRespawnData().pos();
-		Random random = new Random();
-		for (int attempt = 0; attempt < 512; attempt++) {
-			int distance = 3_000 + random.nextInt(27_001);
-			double angle = random.nextDouble() * Math.PI * 2.0;
-			int x = lobby.getX() + (int) Math.round(Math.cos(angle) * distance);
-			int z = lobby.getZ() + (int) Math.round(Math.sin(angle) * distance);
-			BlockPos target = new BlockPos(x, 80, z);
-			var biomeHolder = level.getBiome(target);
-			var biome = biomeHolder.value();
-			String biomeName = biomeHolder.unwrapKey()
-				.map(key -> key.identifier().getPath())
-				.orElse("");
-			if (!biomeName.contains("ocean")
-					&& !biomeName.equals("deep_ocean")
-					&& !biomeName.equals("frozen_ocean")
-					&& !biomeName.equals("river")) {
-				return target;
-			}
-		}
-		int distance = 3_000 + random.nextInt(27_001);
-		double angle = random.nextDouble() * Math.PI * 2.0;
-		return new BlockPos(
-			lobby.getX() + (int) Math.round(Math.cos(angle) * distance),
-			80,
-			lobby.getZ() + (int) Math.round(Math.sin(angle) * distance));
-	}
-
 	private static long packChunk(int x, int z) {
 		return ((long) x << 32) ^ (z & 0xffffffffL);
 	}
@@ -774,6 +918,9 @@ public final class ArenaManager {
 	private static int unpackZ(long packed) {
 		return (int) packed;
 	}
+
+	private record ArenaCandidate(BlockPos center, ArenaSurvey<Holder<Biome>> survey,
+			ArenaCandidateScore score) {}
 
 	private record WorldBorderSnapshot(double centerX, double centerZ, double size,
 			double damagePerBlock, int warningTime, int warningBlocks) {

@@ -1,10 +1,16 @@
 package com.edwinc125.minuterush.task;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.Test;
 
 class TaskDescriptionTest {
+	@Test
+	void yLevelTasksDescribeAnExactTarget() {
+		assertEquals("Reach Y = 100", new YLevelTask(100).description());
+	}
+
 	@Test
 	void interactionLabelsAreHumanReadable() {
 		String mob = new InteractionTask(InteractionTask.Kind.MOB, "any-mob", 1).description();

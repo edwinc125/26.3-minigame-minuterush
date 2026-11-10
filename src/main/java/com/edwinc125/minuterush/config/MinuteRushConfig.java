@@ -56,4 +56,9 @@ public record MinuteRushConfig(
 			interRoundBreakSeconds, arenaChunkWidth, arenaChunkDepth, borderExpansionBlocksPerSecond,
 			maxBorderSize, keepInventoryGraceSeconds, difficulty, pvp);
 	}
+
+	public String matchStartSummary() {
+		return "Match settings: difficulty " + difficulty.id() + ", PvP " + (pvp ? "on" : "off")
+			+ ", points to win " + targetScore + ", time per round " + roundDurationSeconds + "s.";
+	}
 }
