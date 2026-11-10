@@ -87,10 +87,8 @@ public final class ArenaManager {
 	private final Map<UUID, GameType> pendingLobbyReturns = new HashMap<>();
 	/** Biome sample spacing in blocks; 16 gives ~4000 samples for a 1000-block border. */
 	private static final int SURVEY_STEP = 16;
-	private final List<ArenaCandidate> candidatePool = new ArrayList<>();
-	private final Set<Long> candidateCentersInUse = new HashSet<>();
+	private final ArenaCandidatePool<ArenaCandidate> candidatePool = new ArenaCandidatePool<>();
 	private final Random candidateRandom = new Random();
-	private int candidateScansInFlight;
 	private int candidateAttempts;
 	private boolean initialCandidateSelection;
 	private boolean lowScoreReevaluationUsed;
@@ -180,13 +178,14 @@ public final class ArenaManager {
 		if (!chunkLoadingStarted) {
 			boolean poolReady = initialCandidateSelection
 				? candidatePool.size() == MAX_ARENA_CANDIDATES
-					|| (candidateScansInFlight == 0 && candidateAttempts >= MAX_CANDIDATE_ATTEMPTS)
-				: !candidatePool.isEmpty();
+				: candidatePool.size() > 0;
 			if (poolReady) {
 				selectBestCandidate(level);
-			} else if (candidateScansInFlight == 0 && candidateAttempts >= MAX_CANDIDATE_ATTEMPTS
-					&& candidatePool.isEmpty()) {
-				preparationFailure = "Arena selection failed: no location with at least 50% land was found.";
+			} else if (!initialCandidateSelection
+					|| (candidatePool.inFlight() == 0 && candidateAttempts >= MAX_CANDIDATE_ATTEMPTS)) {
+				preparationFailure = initialCandidateSelection
+					? "Arena selection failed: could not find five unused locations with at least 50% land."
+					: "Arena selection failed: none of the candidates could be prepared.";
 				preparing = false;
 			}
 			return;
@@ -198,6 +197,7 @@ public final class ArenaManager {
 		}
 		if (loadedChunks.get() == totalChunks) {
 			if (prepareParticipantPositions(level)) {
+				level.getDataStorage().computeIfAbsent(ArenaHistory.TYPE).record(packChunk(centerX, centerZ));
 				preparing = false;
 				ready = true;
 			} else {
@@ -207,43 +207,33 @@ public final class ArenaManager {
 	}
 
 	private void maintainCandidatePool(ServerLevel level) {
-		if (!preparing && selectedCandidate == null) {
+		if (!preparing || !initialCandidateSelection) {
 			return;
 		}
 		if (!lowScoreReevaluationUsed && ArenaCandidateScore.shouldReevaluatePool(
-				candidatePool.stream().map(ArenaCandidate::score).toList())) {
-			candidatePool.forEach(candidate ->
-				candidateCentersInUse.remove(packChunk(candidate.center().getX(), candidate.center().getZ())));
-			candidatePool.clear();
+				candidatePool.candidates().stream().map(ArenaCandidate::score).toList())) {
+			candidatePool.discardCandidates();
 			candidateAttempts = 0;
 			lowScoreReevaluationUsed = true;
 		}
 
-		while (candidatePool.size() + candidateScansInFlight < MAX_ARENA_CANDIDATES
-				&& candidateScansInFlight < MAX_CANDIDATE_SCANS_IN_FLIGHT
+		ArenaHistory history = level.getDataStorage().computeIfAbsent(ArenaHistory.TYPE);
+		while (candidatePool.size() + candidatePool.inFlight() < MAX_ARENA_CANDIDATES
+				&& candidatePool.inFlight() < MAX_CANDIDATE_SCANS_IN_FLIGHT
 				&& candidateAttempts < MAX_CANDIDATE_ATTEMPTS) {
 			BlockPos center = nextCandidateCenter();
 			long key = packChunk(center.getX(), center.getZ());
-			if (!candidateCentersInUse.add(key)) {
+			candidateAttempts++;
+			if (history.contains(key) || !candidatePool.reserve(key)) {
 				continue;
 			}
-			candidateScansInFlight++;
-			candidateAttempts++;
+			int generation = candidatePool.generation();
 			evaluateCandidate(level, center).whenComplete((candidate, error) -> server.execute(() -> {
-				candidateScansInFlight--;
-				candidateCentersInUse.remove(key);
+				if (!candidatePool.complete(generation, key, candidate)) {
+					return;
+				}
 				if (error != null) {
 					com.mojang.logging.LogUtils.getLogger().warn("Minute Rush arena candidate survey failed", error);
-				} else if (candidate != null) {
-					candidatePool.add(candidate);
-					candidateCentersInUse.add(key);
-					candidatePool.sort((left, right) -> Double.compare(
-						right.score().score(), left.score().score()));
-					while (candidatePool.size() > MAX_ARENA_CANDIDATES) {
-						ArenaCandidate removed = candidatePool.remove(candidatePool.size() - 1);
-						candidateCentersInUse.remove(
-							packChunk(removed.center().getX(), removed.center().getZ()));
-					}
 				}
 				if (preparing) {
 					maintainCandidatePool(server.overworld());
@@ -263,12 +253,10 @@ public final class ArenaManager {
 	}
 
 	private void selectBestCandidate(ServerLevel level) {
-		if (candidatePool.isEmpty()) {
+		if (candidatePool.size() == 0) {
 			return;
 		}
-		candidatePool.sort((left, right) ->
-			Double.compare(right.score().score(), left.score().score()));
-		selectedCandidate = candidatePool.remove(0);
+		selectedCandidate = candidatePool.removeBest(candidate -> candidate.score().score());
 		BlockPos center = selectedCandidate.center();
 		centerX = center.getX();
 		centerZ = center.getZ();
@@ -283,7 +271,6 @@ public final class ArenaManager {
 			selectedCandidate.score().biomeDiversity(), selectedCandidate.score().structureCount(),
 			Math.round(selectedCandidate.score().landRatio() * 100));
 		startChunkLoading(level);
-		maintainCandidatePool(level);
 	}
 
 	/**
@@ -627,7 +614,6 @@ public final class ArenaManager {
 			restoreKeepInventory();
 			keepInventoryUntil = 0;
 		}
-		maintainCandidatePool(server.overworld());
 	}
 
 	public boolean cleanupActive() {
@@ -733,19 +719,8 @@ public final class ArenaManager {
 	}
 
 	public void resetPreparation() {
-		if (selectedCandidate != null) {
-			candidatePool.add(selectedCandidate);
-			candidateCentersInUse.add(packChunk(
-				selectedCandidate.center().getX(), selectedCandidate.center().getZ()));
-			candidatePool.sort((left, right) ->
-				Double.compare(right.score().score(), left.score().score()));
-			while (candidatePool.size() > MAX_ARENA_CANDIDATES) {
-				ArenaCandidate removed = candidatePool.remove(candidatePool.size() - 1);
-				candidateCentersInUse.remove(packChunk(
-					removed.center().getX(), removed.center().getZ()));
-			}
-			selectedCandidate = null;
-		}
+		candidatePool.reset();
+		selectedCandidate = null;
 		preparing = false;
 		ready = false;
 		chunkLoadingStarted = false;
@@ -868,7 +843,6 @@ public final class ArenaManager {
 		loadedChunks.set(0);
 		failedChunks.set(0);
 		preparationGeneration.incrementAndGet();
-		candidateCentersInUse.remove(packChunk(centerX, centerZ));
 		selectedCandidate = null;
 		survey = null;
 		chunkLoadingStarted = false;
