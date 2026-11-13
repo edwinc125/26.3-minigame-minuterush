@@ -85,6 +85,7 @@ public final class MinuteRushGame {
 		this.server = server;
 		this.config = config;
 		this.arena = new ArenaManager(server);
+		arena.enterLobbyDifficulty();
 	}
 
 	public MinecraftServer server() {

@@ -69,8 +69,6 @@ public final class ArenaManager {
 	private WorldBorderSnapshot originalBorder;
 	private boolean originalKeepInventory;
 	private boolean keepInventoryCaptured;
-	/** The server's difficulty before the match changed it; null when the match hasn't changed it. */
-	private net.minecraft.world.Difficulty originalDifficulty;
 	private boolean preparing;
 	private boolean ready;
 	private int totalChunks;
@@ -612,25 +610,22 @@ public final class ArenaManager {
 	}
 
 	/**
-	 * Sets the Minecraft difficulty for the match (issue #60). The server's own difficulty is saved the first time
-	 * and put back by the end-of-match cleanup. Forced, so it applies even if an operator locked the difficulty;
-	 * a hardcore world stays on Hard regardless (vanilla enforces that).
+	 * Sets the Minecraft difficulty (issue #60): the match's difficulty while one runs, Peaceful in the lobby.
+	 * Forced, so it applies even if an operator locked the difficulty; a hardcore world stays on Hard regardless
+	 * (vanilla enforces that).
 	 */
 	public void setGameDifficulty(net.minecraft.world.Difficulty difficulty) {
-		net.minecraft.world.Difficulty current = server.getWorldData().getDifficulty();
-		if (originalDifficulty == null) {
-			originalDifficulty = current;
-		}
-		if (current != difficulty) {
+		if (server.getWorldData().getDifficulty() != difficulty) {
 			server.setDifficulty(difficulty, true);
 		}
 	}
 
-	private void restoreGameDifficulty() {
-		if (originalDifficulty != null) {
-			server.setDifficulty(originalDifficulty, true);
-			originalDifficulty = null;
-		}
+	/**
+	 * Puts the lobby on Peaceful, so no mobs spawn there between matches. Called at server start as well as after
+	 * each match, which also covers a server that stopped mid-match and kept the match's difficulty.
+	 */
+	public void enterLobbyDifficulty() {
+		setGameDifficulty(net.minecraft.world.Difficulty.PEACEFUL);
 	}
 
 	public void tickModifiers() {
@@ -673,7 +668,7 @@ public final class ArenaManager {
 				: GameType.SURVIVAL);
 		}
 		restoreKeepInventory();
-		restoreGameDifficulty();
+		enterLobbyDifficulty();
 		if (originalBorder != null) {
 			originalBorder.apply(level.getWorldBorder());
 		}
