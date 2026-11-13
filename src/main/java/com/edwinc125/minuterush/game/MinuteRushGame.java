@@ -386,6 +386,8 @@ public final class MinuteRushGame {
 		title("Generating Arena...", "Please wait");
 		server.getPlayerList().broadcastSystemMessage(Component.literal(config.matchStartSummary()), false);
 		arena.beginPreparation(activePlayers().stream().toList(), lobbySpectatorPlayers(), config);
+		// Easy from the start: the arena wait and the countdown are part of the warm-up.
+		arena.setGameDifficulty(difficultyProgress.gameDifficulty());
 		lobbyReady.clear();
 		ScoreboardDisplay.refresh(server, this);
 		updatePresentation();
@@ -560,6 +562,7 @@ public final class MinuteRushGame {
 			// N counts everyone in the match, including anyone briefly disconnected (they can rejoin). Counting only
 			// online players would let one dropped connection end the warm-up early, with no way back.
 			difficultyProgress.next(config.difficulty(), participants.size(), matchTicks));
+		arena.setGameDifficulty(difficultyProgress.gameDifficulty());
 		task = selection.task();
 		currentTaskId = selection.id();
 		currentTaskDifficulty = selection.difficulty();
