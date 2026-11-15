@@ -2,6 +2,7 @@ package com.edwinc125.minuterush.task;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import net.minecraft.world.Difficulty;
 import org.junit.jupiter.api.Test;
 
 class DifficultyProgressTest {
@@ -100,6 +101,54 @@ class DifficultyProgressTest {
 		progress.reset();
 		assertEquals(MatchDifficulty.EASY, progress.progressivePhase());
 		assertEquals(DifficultyMix.WARM_UP, progress.next(MatchDifficulty.HARD, 1, 0));
+	}
+
+	@Test
+	void fixedModesPlayAtTheirGameDifficultyAfterAnEasyWarmUp() {
+		assertEquals(Difficulty.EASY, MatchDifficulty.EASY.gameDifficulty());
+		assertEquals(Difficulty.NORMAL, MatchDifficulty.MEDIUM.gameDifficulty());
+		assertEquals(Difficulty.HARD, MatchDifficulty.HARD.gameDifficulty());
+		for (MatchDifficulty mode : new MatchDifficulty[] {MatchDifficulty.MEDIUM, MatchDifficulty.HARD}) {
+			DifficultyProgress progress = new DifficultyProgress();
+			// Before the first pick (arena wait and countdown) the match is already Easy.
+			assertEquals(Difficulty.EASY, progress.gameDifficulty(), mode + " before the first task");
+			for (int i = 0; i < 6; i++) {
+				progress.next(mode, 2, 0);
+				assertEquals(Difficulty.EASY, progress.gameDifficulty(), mode + " warm-up task " + i);
+				progress.taskCompleted();
+			}
+			progress.next(mode, 2, 0);
+			assertEquals(mode.gameDifficulty(), progress.gameDifficulty(), mode + " after warm-up");
+		}
+	}
+
+	@Test
+	void warmUpGameDifficultyAlsoEndsAfterFiveMinutes() {
+		DifficultyProgress progress = new DifficultyProgress();
+		progress.next(MatchDifficulty.HARD, 1, 5 * MINUTE - 1);
+		assertEquals(Difficulty.EASY, progress.gameDifficulty());
+		progress.next(MatchDifficulty.HARD, 1, 5 * MINUTE);
+		assertEquals(Difficulty.HARD, progress.gameDifficulty());
+	}
+
+	@Test
+	void progressiveStepsThroughEasyNormalAndHard() {
+		DifficultyProgress progress = new DifficultyProgress();
+		// 1 player: 3 completed tasks of Easy (also the warm-up), 4 of Medium, then Hard.
+		for (int i = 0; i < 3; i++) {
+			progress.next(MatchDifficulty.PROGRESSIVE, 1, 0);
+			assertEquals(Difficulty.EASY, progress.gameDifficulty(), "easy phase task " + i);
+			progress.taskCompleted();
+		}
+		for (int i = 0; i < 4; i++) {
+			progress.next(MatchDifficulty.PROGRESSIVE, 1, 0);
+			assertEquals(Difficulty.NORMAL, progress.gameDifficulty(), "medium phase task " + i);
+			progress.taskCompleted();
+		}
+		progress.next(MatchDifficulty.PROGRESSIVE, 1, 0);
+		assertEquals(Difficulty.HARD, progress.gameDifficulty());
+		progress.reset();
+		assertEquals(Difficulty.EASY, progress.gameDifficulty());
 	}
 
 	@Test

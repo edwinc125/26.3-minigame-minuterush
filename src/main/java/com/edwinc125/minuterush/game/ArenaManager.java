@@ -609,6 +609,25 @@ public final class ArenaManager {
 		keepInventoryUntil = Math.max(keepInventoryUntil, server.overworld().getGameTime() + seconds * 20L);
 	}
 
+	/**
+	 * Sets the Minecraft difficulty (issue #60): the match's difficulty while one runs, Peaceful in the lobby.
+	 * Forced, so it applies even if an operator locked the difficulty; a hardcore world stays on Hard regardless
+	 * (vanilla enforces that).
+	 */
+	public void setGameDifficulty(net.minecraft.world.Difficulty difficulty) {
+		if (server.getWorldData().getDifficulty() != difficulty) {
+			server.setDifficulty(difficulty, true);
+		}
+	}
+
+	/**
+	 * Puts the lobby on Peaceful, so no mobs spawn there between matches. Called at server start as well as after
+	 * each match, which also covers a server that stopped mid-match and kept the match's difficulty.
+	 */
+	public void enterLobbyDifficulty() {
+		setGameDifficulty(net.minecraft.world.Difficulty.PEACEFUL);
+	}
+
 	public void tickModifiers() {
 		if (keepInventoryUntil > 0 && server.overworld().getGameTime() >= keepInventoryUntil) {
 			restoreKeepInventory();
@@ -649,6 +668,7 @@ public final class ArenaManager {
 				: GameType.SURVIVAL);
 		}
 		restoreKeepInventory();
+		enterLobbyDifficulty();
 		if (originalBorder != null) {
 			originalBorder.apply(level.getWorldBorder());
 		}
